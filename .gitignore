@@ -1,2 +1,5 @@
 todos.db*
-caddy*
+caddy
+caddy.exe
+.env
+*.sqlite

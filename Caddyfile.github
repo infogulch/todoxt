@@ -1,0 +1,92 @@
+# Production-style Caddyfile: GitHub OAuth via caddy-security + xtemplate.
+#
+# Build:
+#   xcaddy build \
+#     --with github.com/infogulch/xtemplate/caddy/standard \
+#     --with github.com/greenpau/caddy-security
+#
+# Required environment variables:
+#   GITHUB_CLIENT_ID      OAuth App client ID
+#   GITHUB_CLIENT_SECRET  OAuth App client secret
+#   JWT_SHARED_KEY        long random string used to sign/verify portal tokens
+#
+# GitHub OAuth App settings (https://github.com/settings/developers):
+#   Homepage URL:     https://todo.xtemplate.dev
+#   Callback URL:     https://todo.xtemplate.dev/auth/oauth2/github/authorization-code-callback
+#   (for local OAuth testing, also add http://localhost:8080/... callback and set
+#    cookie domain / site address accordingly)
+#
+# Run:
+#   export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... JWT_SHARED_KEY=...
+#   caddy run --config Caddyfile.github
+
+{
+	order authenticate before respond
+	order authorize before basicauth
+
+	security {
+		oauth identity provider github {
+			realm github
+			driver github
+			client_id {$GITHUB_CLIENT_ID}
+			client_secret {$GITHUB_CLIENT_SECRET}
+			scopes openid email profile
+		}
+
+		authentication portal todo_portal {
+			crypto default token lifetime 86400
+			crypto key sign-verify {$JWT_SHARED_KEY}
+			enable identity provider github
+			cookie domain todo.xtemplate.dev
+			ui {
+				links {
+					"My todos" /todos icon "las la-check-square"
+					"Home" / icon "las la-home"
+				}
+			}
+			transform user {
+				match realm github
+				action add role authp/user
+			}
+		}
+
+		authorization policy todo_policy {
+			set auth url /auth
+			crypto key verify {$JWT_SHARED_KEY}
+			allow roles authp/user
+			# Injects X-Token-Subject, X-Token-User-Name, X-Token-User-Email, …
+			inject headers with claims
+		}
+	}
+}
+
+todo.xtemplate.dev {
+	# Reject spoofed identity headers from the client; authorize re-injects real claims.
+	request_header -X-Token-Subject
+	request_header -X-Token-User-Name
+	request_header -X-Token-User-Email
+	request_header -X-Token-User-Roles
+
+	route /auth* {
+		authenticate with todo_portal
+	}
+
+	route {
+		authorize with todo_policy
+		xtemplate {
+			templates_dir templates
+
+			crossorigin {
+				trusted_origins https://todo.xtemplate.dev
+			}
+
+			provider sql DB {
+				driver sqlite3
+				connstr file:./todos.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)
+			}
+			provider bus Bus {
+				buffer 32
+			}
+		}
+	}
+}

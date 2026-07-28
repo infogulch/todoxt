@@ -1,25 +1,37 @@
+# Local development Caddyfile (no GitHub OAuth).
+# Injects a fixed identity so multi-user SQL isolation still works.
+#
+# Build Caddy with xtemplate (standard providers + sqlite3 + bus):
+#   xcaddy build --with github.com/infogulch/xtemplate/caddy/standard
+#
+# Requires a recent xtemplate (bus provider). For GitHub OAuth, use Caddyfile.github.
+#
+#   caddy run --config Caddyfile
+
 {
-   # debug
+	# debug
 }
 
-:8080
+:8080 {
+	# Strip any client-supplied identity headers, then inject a dev user.
+	request_header -X-Token-Subject
+	request_header -X-Token-User-Name
+	request_header X-Token-Subject "dev"
+	request_header X-Token-User-Name "Local Dev"
 
-route /static/* {
-    file_server
-}
+	route {
+		xtemplate {
+		    controller watchfs {
+				path templates
+			}
 
-route {
-	xtemplates {
-        root templates
-
-        # database {
-        #     driver sqlite3
-        #     connstr file:todos.db?_journal=WAL&_vacuum=full&_foreign_keys=true&_synchronous=NORMAL
-        # }
-
-        database {
-            driver sqlite
-            connstr file:todos.db?_pragma=journal_mode(WAL)&_pragma=synchronous(1)&_pragma=foreign_keys(1)&_pragma=auto_vacuum(2)
-        }
-    }
+			provider sql DB {
+				driver sqlite3
+				connstr file:./todos.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)
+			}
+			provider bus Bus {
+				buffer 32
+			}
+		}
+	}
 }

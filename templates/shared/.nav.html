@@ -1,0 +1,16 @@
+{{define "nav"}}
+{{- $login := or (.Req.Header.Get "X-Token-User-Name") (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-brand" href="/">todoxt</a>
+    <nav class="site-nav" aria-label="Main">
+      <a href="/">Home</a>
+      <a href="/todos">Todos</a>
+      <span class="user-chip" title="Authenticated identity">
+        <span aria-hidden="true">👤</span>
+        <span>{{$login}}</span>
+      </span>
+    </nav>
+  </div>
+</header>
+{{end}}

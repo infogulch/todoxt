@@ -1,0 +1,20 @@
+{
+  "controller": {
+    "type": "os",
+    "path": "templates"
+  },
+  "listen": "0.0.0.0:8080",
+  "providers": [
+    {
+      "type": "sql",
+      "name": "DB",
+      "driver": "sqlite3",
+      "connstr": "file:./todos.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
+    },
+    {
+      "type": "bus",
+      "name": "Bus",
+      "buffer": 32
+    }
+  ]
+}
