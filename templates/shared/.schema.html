@@ -1,0 +1,24 @@
+{{define "INIT todos-schema"}}
+{{$_ := .DB.Exec `
+CREATE TABLE IF NOT EXISTS todo_list (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  name TEXT NOT NULL
+) STRICT`}}
+{{$_ := .DB.Exec `CREATE INDEX IF NOT EXISTS todo_list_owner_id ON todo_list(owner_id)`}}
+{{$_ := .DB.Exec `
+CREATE TABLE IF NOT EXISTS todo (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  list_id TEXT,
+  label TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1))
+) STRICT`}}
+{{$_ := .DB.Exec `CREATE INDEX IF NOT EXISTS todo_owner_id ON todo(owner_id)`}}
+{{- /* Migrate older DBs that created todo without list_id, before indexing it. */}}
+{{- $hasListCol := .DB.QueryVal `SELECT COUNT(*) FROM pragma_table_info('todo') WHERE name = 'list_id'`}}
+{{- if eq $hasListCol 0}}
+{{$_ := .DB.Exec `ALTER TABLE todo ADD COLUMN list_id TEXT`}}
+{{- end}}
+{{$_ := .DB.Exec `CREATE INDEX IF NOT EXISTS todo_list_id ON todo(list_id)`}}
+{{end}}

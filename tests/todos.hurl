@@ -4,34 +4,31 @@
 # Assertions tolerate HTML minification (attribute quotes may be dropped when
 # the value does not require them).
 
+# Home is the lists index
 GET http://localhost:8080/
 HTTP 200
 [Asserts]
 body contains "todoxt"
+body contains "id=lists-index"
+body contains "My Todos"
+body contains "/list/my-todos/"
+
+# About page holds the tech-demo writeup
+GET http://localhost:8080/about
+HTTP 200
+[Asserts]
+body contains "About todoxt"
 body contains "Live multi-tab sync"
 
-GET http://localhost:8080/todos
-HTTP 200
-[Asserts]
-body contains "Todos"
-body contains "id=todos-app"
-
-# Add a todo
-POST http://localhost:8080/todos
+# Create a list (also ensures default exists)
+POST http://localhost:8080/lists
 Content-Type: application/x-www-form-urlencoded
 [FormParams]
-label: Buy milk
+name: Groceries
 HTTP 200
 [Asserts]
-body contains "Buy milk"
-body contains "todo-item"
-
-# Panel fragment
-GET http://localhost:8080/todos/app
-HTTP 200
-[Asserts]
-body contains "Buy milk"
-body contains "id=todos-app"
+header "HX-Redirect" contains "/list/groceries/"
+body contains "Groceries"
 
 # Assets
 GET http://localhost:8080/assets/app.css

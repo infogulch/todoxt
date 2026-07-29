@@ -4,16 +4,38 @@ A multi-user todo list demo for
 [xtemplate](https://github.com/infogulch/xtemplate) — Go `html/template` as a
 hypertext server, with SQLite, Server-Sent Events, and htmx 4.
 
-Open two tabs of `/todos`, edit one, and the other updates immediately over SSE.
+Open two tabs of a list, edit one, and the other updates immediately over SSE.
+A default **My Todos** list is created automatically. Tech-demo notes live on
+`/about`.
+
+### URL shape
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | Your lists |
+| `POST` | `/lists` | Create a list |
+| `GET` | `/list/{slug}/{id}/` | View & edit one list (lookup by **id**) |
+| `DELETE` | `/list/{slug}/{id}` | Delete a list |
+| `POST` | `/list/{slug}/{id}/todos` | Add a todo |
+| `POST` | `/list/{slug}/{id}/todos/{todoId}/toggle` | Toggle a todo |
+| `DELETE` | `/list/{slug}/{id}/todos/{todoId}` | Delete a todo |
+| `POST` | `/list/{slug}/{id}/toggle-all` | Toggle all in the list |
+| `SSE` | `/list/{slug}/{id}/events` | Live updates for that owner |
+
+The **slug** is a kebab-case decoration from the list name (`My Todos` →
+`my-todos`). Queries always use the GUID; a mismatched slug 302s to the
+canonical path (with trailing slash). The page URL uses a trailing slash
+(file-based `index.html` route); method routes on the list resource do not.
 
 ## What it showcases
 
 | Feature | Where |
 |---|---|
-| File + method routes in templates | `templates/todos.html` |
+| File + method routes in templates | `templates/index.html`, `list/{name}/{id}/` |
 | SQLite via `sql` provider | `provider sql DB` / `.DB.*` |
+| Multiple lists, REST-ish URLs | `/` + `/list/{slug}/{id}/` |
 | Per-user data isolation | `owner_id` + `X-Token-Subject` |
-| Live multi-tab sync | `.Bus` + `SSE /todos/events` |
+| Live multi-tab sync | `.Bus` + `SSE /list/.../events` |
 | htmx 4 progressive enhancement | pinned `templates/assets/htmx.min.js` (v4.0.0-beta5) |
 | Content-hashed static assets | `.X.StaticFileHash` |
 | Auth outside the app | Caddy + [caddy-security](https://docs.authcrunch.com/) (GitHub OAuth) |
@@ -96,9 +118,9 @@ site block at `:8080`, set `cookie domain localhost` (or omit domain), and add
 
 1. Each mutation writes SQLite **and** publishes `"updated"` on bus topic
    `todos:{owner}`.
-2. Each tab opens `EventSource("/todos/events")`, which ranges
+2. Each list tab opens `EventSource("/list/{slug}/{id}/events")`, which ranges
    `.Bus.Subscribe` for that owner and streams SSE.
-3. On a ping, the tab `htmx.ajax`s `GET /todos/app` and swaps `#todos-app`.
+3. On a ping, the tab `htmx.ajax`s `GET /list/{slug}/{id}/app` and swaps `#todos-app`.
 
 Topics are per-user so users never receive each other’s HTML. The in-process
 `bus` provider is single-process only (fine for one Caddy instance).
@@ -110,16 +132,21 @@ Caddyfile           # local dev (fixed identity headers)
 Caddyfile.github    # todo.xtemplate.dev + GitHub OAuth
 config.json         # plain xtemplate CLI config
 templates/
-  index.html        # landing / feature tour
-  todos.html        # UI + INIT schema + CRUD + SSE routes
+  index.html                 # GET / — lists index + POST /lists
+  list/{name}/{id}/
+    index.html               # list page + DELETE/POST/SSE method routes
+    app.html                 # GET …/app fragment (todos-app block)
+  about.html                 # tech-demo writeup
   assets/
     app.css
-    htmx.min.js     # htmx 4.0.0-beta5
+    htmx.min.js              # htmx 4.0.0-beta5
   shared/
-    .head.html      # partial (no route)
+    .head.html               # partial (no route)
     .nav.html
+    .schema.html             # INIT SQLite schema
+    .helpers.html            # ensure-lists, notify, list-path / list-base
 tests/
-  todos.hurl        # smoke tests
+  todos.hurl                 # smoke tests
 ```
 
 ## Smoke tests

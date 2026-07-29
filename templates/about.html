@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>About — todoxt</title>
+  {{template "/shared/.head.html" .}}
+</head>
+<body>
+  {{template "nav" .}}
+  <main class="site-main">
+    <section class="hero">
+      <h1>About todoxt</h1>
+      <p>
+        A small multi-user todo app that shows what
+        <a href="https://github.com/infogulch/xtemplate">xtemplate</a>
+        can do with almost no application code — just templates, SQL, and Caddy.
+      </p>
+      <ul class="feature-list">
+        <li><strong>File-based routes</strong> and method routes defined in HTML templates</li>
+        <li><strong>SQLite</strong> via the <code>sql</code> provider (per GitHub user)</li>
+        <li><strong>Multiple lists</strong> with clean REST URLs: <code>/list/{slug}/{id}</code></li>
+        <li><strong>Live multi-tab sync</strong> with the in-process <code>bus</code> + <code>SSE</code></li>
+        <li><strong>htmx 4</strong> for progressive enhancement without a SPA</li>
+        <li><strong>Auth in Caddy</strong> (GitHub OAuth via caddy-security); templates only see identity headers</li>
+      </ul>
+      <div class="cta-row">
+        <a class="btn" href="/">Open your lists</a>
+        <a class="btn btn--ghost" href="https://github.com/infogulch/xtemplate">xtemplate docs</a>
+      </div>
+      <p class="live-hint">
+        Tip: open a list in two browser tabs, edit one, and watch the other update.
+      </p>
+    </section>
+  </main>
+</body>
+</html>

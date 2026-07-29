@@ -1,0 +1,127 @@
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- template "ensure-lists" .}}
+{{- $id := .Req.PathValue "id"}}
+{{- $nameParam := .Req.PathValue "name"}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id $owner}}
+{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
+{{- $listName := .DB.QueryVal `SELECT name FROM todo_list WHERE id = ? AND owner_id = ?` $id $owner}}
+{{- $slug := kebabcase (trim $listName)}}
+{{- if eq $slug ""}}{{$slug = "list"}}{{end}}
+{{- /* Name is cosmetic: redirect to the canonical slug when it drifts. */}}
+{{- if ne $nameParam $slug}}
+  {{- $_ := .Resp.AddHeader "Location" (printf "/list/%s/%s/" $slug $id)}}
+  {{- .Resp.ReturnStatus 302}}
+{{- else}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>{{$listName}} — todoxt</title>
+  {{template "/shared/.head.html" .}}
+</head>
+<body>
+  {{template "nav" .}}
+  <main class="site-main">
+    {{template "todos-app" .}}
+    <p class="live-hint">
+      <strong>Live sync:</strong> open this page in another tab. Edits appear here
+      over Server-Sent Events (per-user <code>bus</code> topic).
+    </p>
+  </main>
+  <script>
+    (function () {
+      const app = document.getElementById("todos-app");
+      const base = app && app.getAttribute("data-list-path");
+      if (!base) return;
+      const es = new EventSource(base + "/events");
+      es.onmessage = function (ev) {
+        if (ev.data === "connected") return;
+        htmx.ajax("GET", base + "/app", { target: "#todos-app", swap: "outerHTML" });
+      };
+      es.onerror = function () {
+        /* browser will reconnect; no-op */
+      };
+    })();
+  </script>
+</body>
+</html>
+{{- end}}
+
+{{define "DELETE /list/{name}/{id}"}}
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- $id := .Req.PathValue "id"}}
+{{- $n := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` $owner}}
+{{- if le $n 1}}{{failf "cannot delete the last list"}}{{end}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id $owner}}
+{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
+{{- $_ := .DB.Exec `DELETE FROM todo WHERE list_id = ? AND owner_id = ?` $id $owner}}
+{{- $_ := .DB.Exec `DELETE FROM todo_list WHERE id = ? AND owner_id = ?` $id $owner}}
+{{- template "notify" .}}
+{{- /* From the list page, send the browser home; from the index, swap the panel. */}}
+{{- $hxTarget := .Req.Header.Get "HX-Target"}}
+{{- if or (eq $hxTarget "lists-index") (eq $hxTarget "#lists-index")}}
+  {{- template "lists-index" .}}
+{{- else}}
+  {{- $_ := .Resp.AddHeader "HX-Redirect" "/"}}
+  {{- template "lists-index" .}}
+{{- end}}
+{{end}}
+
+{{define "POST /list/{name}/{id}/todos"}}
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- $listId := .Req.PathValue "id"}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $listId $owner}}
+{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
+{{- .Req.ParseForm}}
+{{- $label := trim (.Req.FormValue "label")}}
+{{- if eq $label ""}}{{failf "label is required"}}{{end}}
+{{- $todoId := uuidv4}}
+{{- $_ := .DB.Exec `INSERT INTO todo (id, owner_id, list_id, label, done) VALUES (?, ?, ?, ?, 0)` $todoId $owner $listId $label}}
+{{- template "notify" .}}
+{{- template "todos-app" .}}
+{{end}}
+
+{{define "POST /list/{name}/{id}/toggle-all"}}
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- $listId := .Req.PathValue "id"}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $listId $owner}}
+{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
+{{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND SUM(done) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` $owner $listId}}
+{{- $new := 1}}
+{{- if $alldone}}{{$new = 0}}{{end}}
+{{- $_ := .DB.Exec `UPDATE todo SET done = ? WHERE owner_id = ? AND list_id = ?` $new $owner $listId}}
+{{- template "notify" .}}
+{{- template "todos-app" .}}
+{{end}}
+
+{{define "POST /list/{name}/{id}/todos/{todoId}/toggle"}}
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- $listId := .Req.PathValue "id"}}
+{{- $todoId := .Req.PathValue "todoId"}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $listId $owner}}
+{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
+{{- $_ := .DB.Exec `UPDATE todo SET done = NOT done WHERE id = ? AND list_id = ? AND owner_id = ?` $todoId $listId $owner}}
+{{- template "notify" .}}
+{{- template "todos-app" .}}
+{{end}}
+
+{{define "DELETE /list/{name}/{id}/todos/{todoId}"}}
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- $listId := .Req.PathValue "id"}}
+{{- $todoId := .Req.PathValue "todoId"}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $listId $owner}}
+{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
+{{- $_ := .DB.Exec `DELETE FROM todo WHERE id = ? AND list_id = ? AND owner_id = ?` $todoId $listId $owner}}
+{{- template "notify" .}}
+{{- template "todos-app" .}}
+{{end}}
+
+{{define "SSE /list/{name}/{id}/events"}}
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- $id := .Req.PathValue "id"}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id $owner}}
+{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
+{{- $.Flush.SendSSE "" "connected"}}
+{{- range .Bus.Subscribe (printf "todos:%s" $owner)}}
+{{- $.Flush.SendSSE "" .}}
+{{- end}}
+{{end}}

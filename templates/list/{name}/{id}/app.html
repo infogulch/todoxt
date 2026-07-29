@@ -1,0 +1,74 @@
+{{block "todos-app" .}}
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- $listId := .Req.PathValue "id"}}
+{{- template "ensure-lists" .}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $listId $owner}}
+{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
+{{- $listName := .DB.QueryVal `SELECT name FROM todo_list WHERE id = ? AND owner_id = ?` $listId $owner}}
+{{- $slug := kebabcase (trim $listName)}}
+{{- if eq $slug ""}}{{$slug = "list"}}{{end}}
+{{- $base := printf "/list/%s/%s" $slug $listId}}
+{{- $listCount := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` $owner}}
+{{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND COALESCE(SUM(done), 0) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` $owner $listId}}
+{{- $count := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ? AND done = 0` $owner $listId}}
+<section id="todos-app" class="todos-card" data-list-path="{{$base}}">
+  <div class="todos-card__header">
+    <div class="todos-card__title">
+      <a class="todos-card__back" href="/">← Lists</a>
+      <h1>{{$listName}}</h1>
+    </div>
+    {{- if gt $listCount 1}}
+    <button type="button" class="btn--danger list-delete"
+      title="Delete this list"
+      hx-delete="{{$base}}"
+      hx-confirm="Delete list “{{$listName}}” and all its todos?">Delete list</button>
+    {{- end}}
+    <label class="sr-only" for="toggle-all">Mark all complete</label>
+    <input id="toggle-all" type="checkbox" title="Toggle all"
+      {{if $alldone}}checked{{end}}
+      hx-post="{{$base}}/toggle-all"
+      hx-target="#todos-app"
+      hx-swap="outerHTML" />
+  </div>
+
+  <form class="todos-card__compose"
+    hx-post="{{$base}}/todos"
+    hx-target="#todos-app"
+    hx-swap="outerHTML">
+    <label class="sr-only" for="new-todo">New todo</label>
+    <input id="new-todo" name="label" type="text"
+      placeholder="What needs to be done?"
+      autocomplete="off" required autofocus />
+    <button type="submit">Add</button>
+  </form>
+
+  <ul class="todo-list" id="todo-list">
+    {{- range .DB.QueryRows `SELECT id, label, done FROM todo WHERE owner_id = ? AND list_id = ? ORDER BY id` $owner $listId}}
+    <li class="todo-item{{if .done}} todo-item--done{{end}}" id="todo-{{.id}}">
+      <input type="checkbox" {{if .done}}checked{{end}}
+        title="Toggle done"
+        hx-post="{{$base}}/todos/{{.id}}/toggle"
+        hx-target="#todos-app"
+        hx-swap="outerHTML" />
+      <span class="todo-item__label">{{.label}}</span>
+      <button type="button" class="btn--danger"
+        title="Delete"
+        hx-delete="{{$base}}/todos/{{.id}}"
+        hx-target="#todos-app"
+        hx-swap="outerHTML"
+        hx-confirm="Delete this todo?">✕</button>
+    </li>
+    {{- else}}
+    <li class="todo-empty">No todos yet. Add one above.</li>
+    {{- end}}
+  </ul>
+
+  <footer class="todos-card__footer">
+    <span>
+      <strong>{{$count}}</strong>
+      {{if eq $count 1}}item{{else}}items{{end}} left
+    </span>
+    <span class="htmx-indicator" aria-live="polite">Updating…</span>
+  </footer>
+</section>
+{{end}}

@@ -1,34 +1,88 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>todoxt — xtemplate demo</title>
+  <title>todoxt</title>
   {{template "/shared/.head.html" .}}
 </head>
 <body>
   {{template "nav" .}}
   <main class="site-main">
-    <section class="hero">
-      <h1>todoxt</h1>
-      <p>
-        A small multi-user todo list that shows what
-        <a href="https://github.com/infogulch/xtemplate">xtemplate</a>
-        can do with almost no application code — just templates, SQL, and Caddy.
-      </p>
-      <ul class="feature-list">
-        <li><strong>File-based routes</strong> and method routes defined in HTML templates</li>
-        <li><strong>SQLite</strong> via the <code>sql</code> provider (per GitHub user)</li>
-        <li><strong>Live multi-tab sync</strong> with the in-process <code>bus</code> + <code>SSE</code></li>
-        <li><strong>htmx 4</strong> for progressive enhancement without a SPA</li>
-        <li><strong>Auth in Caddy</strong> (GitHub OAuth via caddy-security); templates only see identity headers</li>
-      </ul>
-      <div class="cta-row">
-        <a class="btn" href="/todos">Open your todos</a>
-        <a class="btn btn--ghost" href="https://github.com/infogulch/xtemplate">xtemplate docs</a>
-      </div>
-      <p class="live-hint">
-        Tip: open <strong>/todos</strong> in two browser tabs, edit one, and watch the other update.
-      </p>
+    {{block "lists-index" .}}
+    {{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+    {{- template "ensure-lists" .}}
+    {{- $listCount := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` $owner}}
+    <section id="lists-index" class="lists-card">
+        <div class="lists-card__header">
+            <h1>Your lists</h1>
+        </div>
+
+        <form class="lists-card__compose"
+            hx-post="/lists"
+            hx-target="#lists-index"
+            hx-swap="outerHTML">
+                <label class="sr-only" for="new-list">New list name</label>
+                <input id="new-list" name="name" type="text"
+                    placeholder="New list name"
+                    autocomplete="off"
+                    maxlength="80"
+                    required autofocus />
+                <button type="submit">Add list</button>
+            </form>
+
+            <ul class="lists-index" id="lists">
+                {{- range .DB.QueryRows `
+                SELECT l.id, l.name,
+                (SELECT COUNT(*) FROM todo t WHERE t.list_id = l.id AND t.done = 0) AS open_count,
+                (SELECT COUNT(*) FROM todo t WHERE t.list_id = l.id) AS total_count
+                FROM todo_list l
+                WHERE l.owner_id = ?
+                ORDER BY l.rowid, l.id` $owner}}
+                <li class="lists-index__item">
+                    <a class="lists-index__link" href="{{template "list-path" (dict "name" .name "id" .id)}}">
+                        <span class="lists-index__name">{{.name}}</span>
+                        <span class="lists-index__meta">
+                            {{- if eq .total_count 0 -}}
+                            empty
+                            {{- else -}}
+                            <strong>{{.open_count}}</strong> left
+                            · {{.total_count}} total
+                            {{- end -}}
+                        </span>
+                    </a>
+                    {{- if gt $listCount 1}}
+                    <button type="button" class="btn--danger"
+                        title="Delete list"
+                        hx-delete="{{template "list-base" (dict "name" .name "id" .id)}}"
+                        hx-target="#lists-index"
+                        hx-swap="outerHTML"
+                        hx-confirm="Delete list “{{.name}}” and all its todos?">✕</button>
+                    {{- end}}
+                </li>
+                {{- end}}
+            </ul>
+
+            <footer class="lists-card__footer">
+                <span class="lists-card__hint">
+                    URLs look like <code>/list/my-todos/&lt;id&gt;/</code> — the name is cosmetic; the id is the real key.
+                </span>
+            </footer>
     </section>
+    {{end}}
   </main>
 </body>
 </html>
+
+{{define "POST /lists"}}
+{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- template "ensure-lists" .}}
+{{- .Req.ParseForm}}
+{{- $name := trim (.Req.FormValue "name")}}
+{{- if eq $name ""}}{{failf "name is required"}}{{end}}
+{{- $id := uuidv4}}
+{{- $_ := .DB.Exec `INSERT INTO todo_list (id, owner_id, name) VALUES (?, ?, ?)` $id $owner $name}}
+{{- $slug := kebabcase $name}}
+{{- if eq $slug ""}}{{$slug = "list"}}{{end}}
+{{- $_ := .Resp.AddHeader "HX-Redirect" (printf "/list/%s/%s/" $slug $id)}}
+{{- template "notify" .}}
+{{- template "lists-index" .}}
+{{end}}

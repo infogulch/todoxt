@@ -40,8 +40,8 @@
 			cookie domain todo.xtemplate.dev
 			ui {
 				links {
-					"My todos" /todos icon "las la-check-square"
-					"Home" / icon "las la-home"
+					"My todos" / icon "las la-check-square"
+					"About" /about icon "las la-info-circle"
 				}
 			}
 			transform user {
