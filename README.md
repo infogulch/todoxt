@@ -145,7 +145,7 @@ single-process only (fine for one Caddy instance).
 
 Local edits do **not** re-render the whole card:
 
-| Action | Main swap | OOB |
+| Action | Main swap | `<hx-partial>` |
 |---|---|---|
 | Add todo | `beforeend` on `#todo-list` (one `<li>`) | footer, toggle-all, delete empty placeholder |
 | Toggle todo | `outerHTML` on that `<li>` | footer, toggle-all |

@@ -20,7 +20,7 @@
         <li><strong>SQLite</strong> via the <code>sql</code> provider (per GitHub user)</li>
         <li><strong>Multiple lists</strong> with clean REST URLs: <code>/list/{slug}/{id}</code></li>
         <li><strong>Live multi-tab sync</strong> with the in-process <code>bus</code> + htmx <code>hx-sse</code> (per list; HTML 404s unowned lists — SSE cannot change status after stream headers)</li>
-        <li><strong>htmx 4</strong> fine-grained swaps (item/footer OOB) without a SPA</li>
+        <li><strong>htmx 4</strong> fine-grained swaps (item/footer via <code>&lt;hx-partial&gt;</code>) without a SPA</li>
         <li><strong>Auth in Caddy</strong> (GitHub OAuth via caddy-security); templates only see identity headers</li>
       </ul>
       <p class="live-hint">

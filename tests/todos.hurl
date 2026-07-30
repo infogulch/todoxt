@@ -49,7 +49,7 @@ HTTP 302
 header "Location" contains "/list/groceries/"
 header "Location" contains "{{list_id}}"
 
-# Add a todo (fine-grained: one <li> + OOB meta, not full #todos-app)
+# Add a todo (fine-grained: one <li> + hx-partial meta, not full #todos-app)
 POST http://localhost:8080/list/groceries/{{list_id}}/todos
 Content-Type: application/x-www-form-urlencoded
 HX-Request: true
@@ -61,26 +61,26 @@ todo_id: regex "id=\"todo-([^\"]+)\""
 [Asserts]
 body contains "Buy milk"
 body contains "todo-item"
-body contains "hx-swap-oob"
+body contains "hx-partial"
 body not contains "id=todos-app"
 
-# Toggle the todo (returns that <li> + OOB footer/toggle-all)
+# Toggle the todo (returns that <li> + hx-partial footer/toggle-all)
 POST http://localhost:8080/list/groceries/{{list_id}}/todos/{{todo_id}}/toggle
 HX-Request: true
 HTTP 200
 [Asserts]
 body contains "Buy milk"
 body contains "todo-item--done"
-body contains "hx-swap-oob"
+body contains "hx-partial"
 body not contains "id=todos-app"
 
-# Delete the todo (empty main + OOB empty state when last item)
+# Delete the todo (empty main + hx-partial empty state when last item)
 DELETE http://localhost:8080/list/groceries/{{list_id}}/todos/{{todo_id}}
 HX-Request: true
 HTTP 200
 [Asserts]
 body contains "No todos yet"
-body contains "hx-swap-oob"
+body contains "hx-partial"
 body not contains "id=todos-app"
 
 # Empty label → 400

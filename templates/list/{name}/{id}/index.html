@@ -19,7 +19,7 @@
       GET …/app re-invoke the same names via {{template}}.
 
       Fine-grained mutations swap the smallest piece (one item, list body,
-      footer) and use hx-swap-oob for secondary UI. Multi-tab sync uses htmx 4
+      footer) and use <hx-partial> for secondary UI. Multi-tab sync uses htmx 4
       hx-sse:connect (named "updated" → refresh full card).
     */}}
     {{block "todos-app" .}}
@@ -42,7 +42,6 @@
         {{block "toggle-all" .}}
         {{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND COALESCE(SUM(done), 0) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner .Vars.list.id}}
         <input id="toggle-all" type="checkbox" title="Toggle all"
-          {{if .Vars.Has "hx_oob"}}hx-swap-oob="true"{{end}}
           {{if $alldone}}checked{{end}}
           hx-post="{{.Vars.list_base}}/toggle-all"
           hx-target="#todo-list"
@@ -94,7 +93,7 @@
 
       {{block "todo-footer" .}}
       {{- $count := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ? AND done = 0` .Vars.owner .Vars.list.id}}
-      <footer id="todo-footer" class="todos-card__footer"{{if .Vars.Has "hx_oob"}} hx-swap-oob="true"{{end}}>
+      <footer id="todo-footer" class="todos-card__footer">
         <span>
           <strong>{{$count}}</strong>
           {{if eq $count 1}}item{{else}}items{{end}} left
@@ -121,15 +120,16 @@
 </html>
 
 {{/*
-  todo-oob-meta — re-render toggle-all + footer with hx-swap-oob for mutations.
-  Sets .Vars "hx_oob" so the shared blocks add the attribute only for this path
-  (avoids nested OOB when the full card is swapped over SSE).
+  todo-meta-partials — re-render toggle-all + footer via <hx-partial> for mutations.
+  Wrappers live only on this path (full-card SSE swap has no nested partials).
 */}}
-{{define "todo-oob-meta"}}
-{{- $_ := .Vars.Set "hx_oob" true}}
+{{define "todo-meta-partials"}}
+<hx-partial hx-target="#toggle-all" hx-swap="outerHTML">
 {{- template "toggle-all" .}}
+</hx-partial>
+<hx-partial hx-target="#todo-footer" hx-swap="outerHTML">
 {{- template "todo-footer" .}}
-{{- $_ := .Vars.Delete "hx_oob"}}
+</hx-partial>
 {{end}}
 
 {{/* Fragment for multi-tab SSE refresh (same markup as the page card). */}}
@@ -171,11 +171,10 @@
 {{- $_ := .DB.Exec `INSERT INTO todo (id, owner_id, list_id, label, done) VALUES (?, ?, ?, ?, 0)` $todoId .Vars.owner .Vars.list.id $label}}
 {{- template "notify" .}}
 {{- if eq (.Req.Header.Get "HX-Request") "true"}}
-  {{- /* Append one item; OOB updates footer/toggle-all and drops empty placeholder. */}}
+  {{- /* Append one item; partials update footer/toggle-all and drop empty placeholder. */}}
   {{- template "todo-item" (dict "id" $todoId "label" $label "done" 0 "list_base" .Vars.list_base)}}
-  {{- /* Selector form avoids nesting OOB siblings inside an unclosed <li>. */}}
-  <div hx-swap-oob="delete:#todo-empty"></div>
-  {{- template "todo-oob-meta" .}}
+  <hx-partial hx-target="#todo-empty" hx-swap="delete"></hx-partial>
+  {{- template "todo-meta-partials" .}}
 {{- else}}
   {{- .Resp.AddHeader "Location" .Vars.list_path}}
   {{- .Resp.RespondWith 303 ""}}
@@ -190,9 +189,9 @@
 {{- if $alldone}}{{$new = 0}}{{end}}
 {{- $_ := .DB.Exec `UPDATE todo SET done = ? WHERE owner_id = ? AND list_id = ?` $new .Vars.owner $listId}}
 {{- template "notify" .}}
-{{- /* Swap list body; OOB footer + toggle-all. */}}
+{{- /* Swap list body; partials for footer + toggle-all. */}}
 {{- template "todo-list-items" .}}
-{{- template "todo-oob-meta" .}}
+{{- template "todo-meta-partials" .}}
 {{end}}
 
 {{define "POST /list/{name}/{id}/todos/{todoId}/toggle"}}
@@ -206,21 +205,21 @@
 {{- end}}
 {{- $t := $r.Value}}
 {{- template "todo-item" (dict "id" (index $t "id") "label" (index $t "label") "done" (index $t "done") "list_base" .Vars.list_base)}}
-{{- template "todo-oob-meta" .}}
+{{- template "todo-meta-partials" .}}
 {{end}}
 
 {{define "DELETE /list/{name}/{id}/todos/{todoId}"}}
 {{- template "require-list" .}}
 {{- $_ := .DB.Exec `DELETE FROM todo WHERE id = ? AND list_id = ? AND owner_id = ?` (.Req.PathValue "todoId") .Vars.list.id .Vars.owner}}
 {{- template "notify" .}}
-{{- /* Client uses hx-swap=delete on the <li>. If the list is empty, OOB restore empty state. */}}
+{{- /* Client uses hx-swap=delete on the <li>. If empty, partial restores empty state. */}}
 {{- $left := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner .Vars.list.id}}
 {{- if eq $left 0}}
-  <ul id="todo-list" hx-swap-oob="true">
+  <hx-partial hx-target="#todo-list" hx-swap="innerHTML">
     {{- template "todo-empty" .}}
-  </ul>
+  </hx-partial>
 {{- end}}
-{{- template "todo-oob-meta" .}}
+{{- template "todo-meta-partials" .}}
 {{end}}
 
 {{define "SSE /list/{name}/{id}/events"}}
