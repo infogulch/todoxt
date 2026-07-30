@@ -5,8 +5,8 @@ A multi-user todo list demo for
 hypertext server, with SQLite, Server-Sent Events, and htmx 4.
 
 Open two tabs of a list, edit one, and the other updates immediately over SSE.
-A default **My Todos** list is created automatically. Tech-demo notes live on
-`/about`.
+A default **My Todos** list is created automatically on the lists index. Tech-demo
+notes live on `/about`.
 
 ### URL shape
 
@@ -20,7 +20,7 @@ A default **My Todos** list is created automatically. Tech-demo notes live on
 | `POST` | `/list/{slug}/{id}/todos/{todoId}/toggle` | Toggle a todo |
 | `DELETE` | `/list/{slug}/{id}/todos/{todoId}` | Delete a todo |
 | `POST` | `/list/{slug}/{id}/toggle-all` | Toggle all in the list |
-| `SSE` | `/list/{slug}/{id}/events` | Live updates for that owner |
+| `SSE` | `/list/{slug}/{id}/events` | Live updates for that list |
 
 The **slug** is a kebab-case decoration from the list name (`My Todos` →
 `my-todos`). Queries always use the GUID; a mismatched slug 302s to the
@@ -32,10 +32,12 @@ canonical path (with trailing slash). The page URL uses a trailing slash
 | Feature | Where |
 |---|---|
 | File + method routes in templates | `templates/index.html`, `list/{name}/{id}/` |
-| SQLite via `sql` provider | `provider sql DB` / `.DB.*` |
+| SQLite via `sql` provider | `provider sql DB` / `.DB.*` (per-request tx) |
 | Multiple lists, REST-ish URLs | `/` + `/list/{slug}/{id}/` |
 | Per-user data isolation | `owner_id` + `X-Token-Subject` |
-| Live multi-tab sync | `.Bus` + `SSE /list/.../events` |
+| Live multi-tab sync | `.Bus` + `SSE /list/.../events` (per list) |
+| Client-facing 4xx outcomes | `.Resp.RespondWith` + shared error templates |
+| Load helpers via `.Vars` | `require-list` in `shared/.helpers.html` |
 | htmx 4 progressive enhancement | pinned `templates/assets/htmx.min.js` (v4.0.0-beta5) |
 | Content-hashed static assets | `.X.StaticFileHash` |
 | Auth outside the app | Caddy + [caddy-security](https://docs.authcrunch.com/) (GitHub OAuth) |
@@ -52,6 +54,8 @@ go run ./cmd -f /path/to/todoxt/config.json
 ```
 
 Open http://localhost:8080 — all requests share the `anonymous` owner (no auth headers).
+CLI mode does **not** strip client identity headers, so you can send
+`X-Token-Subject` for multi-user tests.
 
 ### Option B — Caddy (recommended)
 
@@ -105,7 +109,8 @@ After login, caddy-security injects claim headers (`X-Token-Subject`,
 `X-Token-User-Name`, …). Templates treat `X-Token-Subject` as the todo owner id
 (stable per GitHub account for this portal configuration).
 
-Persist `todos.db` on a volume. Wipe the file to reset demo data.
+Persist `todos.db` on a volume. Wipe the file to reset demo data (also required
+after schema changes such as foreign keys on fresh installs).
 
 ### Localhost OAuth (optional)
 
@@ -114,16 +119,36 @@ Add a second callback URL on the same OAuth App for
 site block at `:8080`, set `cookie domain localhost` (or omit domain), and add
 `http://localhost:8080` to `crossorigin.trusted_origins`.
 
+## Transactions
+
+The `sql` provider opens a **per-request transaction** on first use, commits on
+success, and rolls back on template error. Multi-statement handlers (e.g. insert
+then re-render) are therefore atomic without manual `BEGIN`/`COMMIT` in templates.
+
 ## Live sync design
 
 1. Each mutation writes SQLite **and** publishes `"updated"` on bus topic
-   `todos:{owner}`.
+   `todos:{owner}:{listId}`.
 2. Each list tab opens `EventSource("/list/{slug}/{id}/events")`, which ranges
-   `.Bus.Subscribe` for that owner and streams SSE.
+   `.Bus.Subscribe` for that owner+list and streams SSE.
 3. On a ping, the tab `htmx.ajax`s `GET /list/{slug}/{id}/app` and swaps `#todos-app`.
 
-Topics are per-user so users never receive each other’s HTML. The in-process
-`bus` provider is single-process only (fine for one Caddy instance).
+Topics are per-list so a mutation on list A does not refresh list B’s open tabs.
+Users never receive each other’s HTML. The in-process `bus` provider is
+single-process only (fine for one Caddy instance).
+
+## CSRF / cross-origin
+
+xtemplate enables Go’s `CrossOriginProtection` by default for browser mutations.
+todoxt does **not** invent CSRF tokens. In production, set
+`crossorigin.trusted_origins` in the Caddyfile (see `Caddyfile.github`) and do
+not disable cross-origin checks.
+
+## Progressive enhancement
+
+Compose forms include both native `method`/`action` and htmx attributes. With JS
+disabled, creating a list or todo still works via full-page POST + redirect.
+Toggle/delete controls remain htmx-oriented for the demo.
 
 ## Project layout
 
@@ -143,22 +168,31 @@ templates/
   shared/
     .head.html               # partial (no route)
     .nav.html
-    .schema.html             # INIT SQLite schema
-    .helpers.html            # ensure-lists, notify, list-path / list-base
+    .schema.html             # INIT SQLite schema (FK + CASCADE)
+    .helpers.html            # ensure-lists, require-list, notify, list-path
+    .404.html                # RespondWith body for missing list
+    .400.html                # optional HTML validation page
 tests/
-  todos.hurl                 # smoke tests
+  todos.hurl                 # smoke + multi-step CRUD + SSE
 ```
 
 ## Smoke tests
 
-With the server on `:8080`:
+Prefer a clean DB for a deterministic suite:
 
 ```sh
+rm -f todos.db todos.db-shm todos.db-wal
+./caddy run --config Caddyfile   # or xtemplate -f config.json
 hurl --test tests/todos.hurl
 ```
+
+Identity isolation tests need the CLI (or any setup that does not rewrite
+`X-Token-Subject`); the local Caddyfile always injects `dev`.
 
 ## Notes
 
 - **Not for secrets.** This is a public demo; data may be wiped.
 - **htmx 4** is currently a beta line; the pin is intentional for the showcase.
 - Dropping Tailwind keeps the demo readable: one small `app.css`, no build step.
+- Fresh DBs get `todo.list_id NOT NULL REFERENCES todo_list(id) ON DELETE CASCADE`.
+  Wipe `todos.db` if you still have a pre-FK schema.

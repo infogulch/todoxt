@@ -13,15 +13,21 @@
         A small multi-user todo app that shows what
         <a href="https://github.com/infogulch/xtemplate">xtemplate</a>
         can do with almost no application code — just templates, SQL, and Caddy.
+        Multi-list, per-user isolation, and live SSE go beyond a classic TodoMVC clone.
       </p>
       <ul class="feature-list">
         <li><strong>File-based routes</strong> and method routes defined in HTML templates</li>
         <li><strong>SQLite</strong> via the <code>sql</code> provider (per GitHub user)</li>
         <li><strong>Multiple lists</strong> with clean REST URLs: <code>/list/{slug}/{id}</code></li>
-        <li><strong>Live multi-tab sync</strong> with the in-process <code>bus</code> + <code>SSE</code></li>
+        <li><strong>Live multi-tab sync</strong> with the in-process <code>bus</code> + <code>SSE</code> (per list)</li>
         <li><strong>htmx 4</strong> for progressive enhancement without a SPA</li>
         <li><strong>Auth in Caddy</strong> (GitHub OAuth via caddy-security); templates only see identity headers</li>
       </ul>
+      <p class="live-hint">
+        Browser form posts are protected by xtemplate’s default Go
+        <code>CrossOriginProtection</code> (CSRF). Production adds
+        <code>trusted_origins</code> in the Caddyfile — no app-level CSRF tokens.
+      </p>
       <div class="cta-row">
         <a class="btn" href="/">Open your lists</a>
         <a class="btn btn--ghost" href="https://github.com/infogulch/xtemplate">xtemplate docs</a>

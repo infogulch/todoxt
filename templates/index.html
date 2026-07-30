@@ -17,6 +17,8 @@
         </div>
 
         <form class="lists-card__compose"
+            method="post"
+            action="/lists"
             hx-post="/lists"
             hx-target="#lists-index"
             hx-swap="outerHTML">
@@ -77,12 +79,17 @@
 {{- template "ensure-lists" .}}
 {{- .Req.ParseForm}}
 {{- $name := trim (.Req.FormValue "name")}}
-{{- if eq $name ""}}{{failf "name is required"}}{{end}}
+{{- if eq $name ""}}{{.Resp.RespondWith 400 "name is required"}}{{end}}
 {{- $id := uuidv4}}
 {{- $_ := .DB.Exec `INSERT INTO todo_list (id, owner_id, name) VALUES (?, ?, ?)` $id $owner $name}}
 {{- $slug := kebabcase $name}}
 {{- if eq $slug ""}}{{$slug = "list"}}{{end}}
-{{- $_ := .Resp.AddHeader "HX-Redirect" (printf "/list/%s/%s/" $slug $id)}}
-{{- template "notify" .}}
-{{- template "lists-index" .}}
+{{- $url := printf "/list/%s/%s/" $slug $id}}
+{{- if eq (.Req.Header.Get "HX-Request") "true"}}
+  {{- $_ := .Resp.AddHeader "HX-Redirect" $url}}
+  {{- template "lists-index" .}}
+{{- else}}
+  {{- $_ := .Resp.AddHeader "Location" $url}}
+  {{- .Resp.RespondWith 303 ""}}
+{{- end}}
 {{end}}

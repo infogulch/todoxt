@@ -1,10 +1,9 @@
 {{block "todos-app" .}}
 {{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $listId := .Req.PathValue "id"}}
-{{- template "ensure-lists" .}}
-{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $listId $owner}}
-{{- if eq $owned 0}}{{failf "list not found"}}{{end}}
-{{- $listName := .DB.QueryVal `SELECT name FROM todo_list WHERE id = ? AND owner_id = ?` $listId $owner}}
+{{- template "require-list" .}}
+{{- $list := .Vars.Get "list"}}
+{{- $listId := index $list "id"}}
+{{- $listName := index $list "name"}}
 {{- $slug := kebabcase (trim $listName)}}
 {{- if eq $slug ""}}{{$slug = "list"}}{{end}}
 {{- $base := printf "/list/%s/%s" $slug $listId}}
@@ -32,6 +31,8 @@
   </div>
 
   <form class="todos-card__compose"
+    method="post"
+    action="{{$base}}/todos"
     hx-post="{{$base}}/todos"
     hx-target="#todos-app"
     hx-swap="outerHTML">

@@ -1,12 +1,15 @@
-{{/* notify publishes a lightweight ping on the per-user bus topic so other tabs refresh. */}}
+{{/* notify publishes a lightweight ping on the per-list bus topic so other tabs refresh. */}}
 {{define "notify"}}
 {{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $_ := .Bus.Publish (printf "todos:%s" $owner) "updated"}}
+{{- $listId := .Req.PathValue "id"}}
+{{- if ne $listId ""}}
+  {{- $_ := .Bus.Publish (printf "todos:%s:%s" $owner $listId) "updated"}}
+{{- end}}
 {{end}}
 
 {{/*
-  ensure-lists creates a default "My Todos" list when the owner has none,
-  and attaches any orphan todos (list_id NULL) to that list.
+  ensure-lists creates a default "My Todos" list when the owner has none.
+  Call only from the lists index (GET /) and POST /lists — not from list routes.
 */}}
 {{define "ensure-lists"}}
 {{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
@@ -15,10 +18,23 @@
   {{- $id := uuidv4}}
   {{- $_ := .DB.Exec `INSERT INTO todo_list (id, owner_id, name) VALUES (?, ?, ?)` $id $owner "My Todos"}}
 {{- end}}
-{{- $_ := .DB.Exec `
-UPDATE todo SET list_id = (
-  SELECT id FROM todo_list WHERE owner_id = ? ORDER BY rowid, id LIMIT 1
-) WHERE owner_id = ? AND (list_id IS NULL OR list_id = '')` $owner $owner}}
+{{end}}
+
+{{/*
+  require-list loads the path list for the current owner into .Vars "list"
+  (map with id, name). Missing / not owned → 404 (replaces buffer).
+  Call: {{template "require-list" .}} then $list := .Vars.Get "list"
+*/}}
+{{define "require-list"}}
+  {{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+  {{- $id := .Req.PathValue "id"}}
+  {{- $r := try .DB "QueryRow" `
+    SELECT id, name FROM todo_list
+    WHERE id = ? AND owner_id = ?` $id $owner}}
+  {{- if not $r.OK}}
+    {{.Resp.RespondWith 404 (.X.Template "/shared/.404.html" .)}}
+  {{- end}}
+  {{- $_ := .Vars.Set "list" $r.Value -}}
 {{end}}
 
 {{/*
