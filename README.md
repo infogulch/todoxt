@@ -15,7 +15,6 @@ notes live on `/about`.
 | `GET` | `/` | Your lists |
 | `POST` | `/lists` | Create a list |
 | `GET` | `/list/{slug}/{id}/` | View & edit one list (lookup by **id**) |
-| `GET` | `/list/{slug}/{id}/app` | List card fragment (SSE multi-tab refresh) |
 | `DELETE` | `/list/{slug}/{id}` | Delete a list |
 | `POST` | `/list/{slug}/{id}/todos` | Add a todo |
 | `POST` | `/list/{slug}/{id}/todos/{todoId}/toggle` | Toggle a todo |
@@ -128,18 +127,20 @@ then re-render) are therefore atomic without manual `BEGIN`/`COMMIT` in template
 
 ## Live sync design
 
-1. Each mutation writes SQLite **and** publishes `"updated"` on bus topic
-   `todos:{owner}:{listId}`.
-2. The list card uses htmx 4’s built-in SSE extension: `hx-sse:connect` on
-   `#todos-app` GETs `/list/{slug}/{id}/events`, which ranges `.Bus.Subscribe`
-   for that owner+list.
-3. The stream sends **named** events (`connected`, `updated`). Named events are
-   dispatched as DOM events (not swapped). A hidden listener on the card
-   `hx-get`s `/list/{slug}/{id}/app` on `updated` and outerHTML-swaps `#todos-app`.
+1. Each mutation writes SQLite **and** publishes an `<hx-partial>` snapshot
+   (list body + toggle-all + footer) on bus topic `todos:{owner}:{listId}`.
+2. The list card uses htmx 4’s SSE extension: `hx-sse:connect` on `#todos-app`
+   (with `hx-swap="none"`) GETs `/list/{slug}/{id}/events`, which ranges
+   `.Bus.Subscribe` for that owner+list.
+3. The stream sends a named `connected` handshake (DOM event only) and
+   **unnamed** messages whose `data` is the HTML snapshot. Unnamed events are
+   swapped by hx-sse; the partials update `#todo-list`, `#toggle-all`, and
+   `#todo-footer` without replacing the card shell (form, SSE connection, header).
 
 Topics are per-list so a mutation on list A does not refresh list B’s open tabs.
 Users never receive each other’s HTML. The in-process `bus` provider is
-single-process only (fine for one Caddy instance).
+single-process only (fine for one Caddy instance). The snapshot is idempotent, so
+the tab that performed the mutation can safely re-apply it over SSE.
 
 ### Fine-grained mutations
 
@@ -152,7 +153,8 @@ Local edits do **not** re-render the whole card:
 | Delete todo | `delete` on that `<li>` | footer, toggle-all; empty list restores `#todo-empty` |
 | Toggle all | `innerHTML` on `#todo-list` | footer, toggle-all |
 
-Multi-tab sync still refreshes the full `#todos-app` (we only know “something changed”).
+Multi-tab sync uses the same partial targets (full list body + meta), not a
+whole-card swap.
 
 **SSE ownership note:** HTML routes use `require-list` → real **404** when the list
 is missing or not yours. The SSE handler cannot: xtemplate commits
@@ -184,7 +186,7 @@ config.json         # plain xtemplate CLI config
 templates/
   index.html                 # GET / page (lists-index block) + POST /lists
   list/{name}/{id}/
-    index.html               # list page (todos-app + nested blocks) + GET …/app + mutations + SSE
+    index.html               # list page + nested blocks + mutations + SSE partials
   about.html                 # tech-demo writeup
   assets/
     app.css

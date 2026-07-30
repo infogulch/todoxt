@@ -14,19 +14,16 @@
   {{template "nav" .}}
   <main class="site-main">
     {{/*
-      todos-app and nested fragments: {{block}} defines the named template and
-      renders it here so the page source is the source of truth. Mutations and
-      GET …/app re-invoke the same names via {{template}}.
-
-      Fine-grained mutations swap the smallest piece (one item, list body,
-      footer) and use <hx-partial> for secondary UI. Multi-tab sync uses htmx 4
-      hx-sse:connect (named "updated" → refresh full card).
+      Nested {{block}}s are the source of truth for mutation fragments
+      (todo-item, toggle-all, footer, list body). Local mutations return the
+      smallest piece + <hx-partial> meta. Multi-tab sync: hx-sse:connect swaps
+      unnamed SSE messages that carry the same partial snapshot (list + meta),
+      not a full-card re-fetch.
     */}}
-    {{block "todos-app" .}}
-    {{- template "require-list" .}}
     {{- $listCount := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` .Vars.owner}}
     <section id="todos-app" class="todos-card" data-list-path="{{.Vars.list_base}}"
-      hx-sse:connect="{{.Vars.list_base}}/events">
+      hx-sse:connect="{{.Vars.list_base}}/events"
+      hx-swap="none">
       <div class="todos-card__header">
         <div class="todos-card__title">
           <a class="todos-card__back" href="/">← Lists</a>
@@ -101,16 +98,7 @@
         <span class="htmx-indicator" aria-live="polite">Updating…</span>
       </footer>
       {{end}}
-
-      {{/* Named SSE "updated" on #todos-app → re-fetch full card for multi-tab sync. */}}
-      <div hidden aria-hidden="true"
-        hx-get="{{.Vars.list_base}}/app"
-        hx-trigger="updated from:closest #todos-app"
-        hx-target="closest #todos-app"
-        hx-select="#todos-app"
-        hx-swap="outerHTML"></div>
     </section>
-    {{end}}
     <p class="live-hint">
       <strong>Live sync:</strong> open this page in another tab. Edits appear here
       over Server-Sent Events (per-list <code>bus</code> topic via htmx <code>hx-sse</code>).
@@ -120,8 +108,8 @@
 </html>
 
 {{/*
-  todo-meta-partials — re-render toggle-all + footer via <hx-partial> for mutations.
-  Wrappers live only on this path (full-card SSE swap has no nested partials).
+  todo-meta-partials — re-render toggle-all + footer via <hx-partial>.
+  Used by local mutation responses and by the multi-tab SSE snapshot.
 */}}
 {{define "todo-meta-partials"}}
 <hx-partial hx-target="#toggle-all" hx-swap="outerHTML">
@@ -132,9 +120,16 @@
 </hx-partial>
 {{end}}
 
-{{/* Fragment for multi-tab SSE refresh (same markup as the page card). */}}
-{{define "GET /list/{name}/{id}/app"}}
-{{- template "todos-app" .}}
+{{/*
+  todo-sync-partials — idempotent multi-tab snapshot (list body + meta).
+  Pushed over the bus as unnamed SSE data; hx-sse swaps the partials only.
+  Full list body (not one-row deltas) so the origin tab can safely re-apply.
+*/}}
+{{define "todo-sync-partials"}}
+<hx-partial hx-target="#todo-list" hx-swap="innerHTML">
+{{- template "todo-list-items" .}}
+</hx-partial>
+{{- template "todo-meta-partials" .}}
 {{end}}
 
 {{define "DELETE /list/{name}/{id}"}}
@@ -233,9 +228,9 @@
 */}}
 {{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id .Vars.owner}}
 {{- if eq $owned 0}}{{failf "list not found"}}{{end}}
-{{- /* Named events: htmx 4 hx-sse dispatches them as DOM events (no swap). */}}
+{{- /* Unnamed data: hx-sse swaps HTML (partials). Named "connected" is DOM-only. */}}
 {{- $.Flush.SendSSE "connected" "ok"}}
 {{- range .Bus.Subscribe (printf "todos:%s:%s" .Vars.owner $id)}}
-{{- $.Flush.SendSSE "updated" .}}
+{{- $.Flush.SendSSE "" .}}
 {{- end}}
 {{end}}

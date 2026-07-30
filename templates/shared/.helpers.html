@@ -9,11 +9,12 @@
 {{end}}
 
 {{/*
-  notify publishes a lightweight ping on the per-list bus topic so other tabs refresh.
-  Requires require-list (uses .Vars.owner and .Vars.list.id).
+  notify publishes an <hx-partial> list snapshot on the per-list bus topic.
+  Other tabs' SSE streams swap the HTML (unnamed events). Idempotent for the
+  origin tab too (innerHTML list + outerHTML meta). Requires require-list.
 */}}
 {{define "notify"}}
-{{- $_ := .Bus.Publish (printf "todos:%s:%s" .Vars.owner .Vars.list.id) "updated"}}
+{{- $_ := .Bus.Publish (printf "todos:%s:%s" .Vars.owner .Vars.list.id) (printf "%s" (.X.Template "todo-sync-partials" .))}}
 {{end}}
 
 {{/*
