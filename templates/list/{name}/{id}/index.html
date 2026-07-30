@@ -23,7 +23,8 @@
     {{- $listCount := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` .Vars.owner}}
     <section id="todos-app" class="todos-card" data-list-path="{{.Vars.list_base}}"
       hx-sse:connect="{{.Vars.list_base}}/events"
-      hx-swap="none">
+      hx-swap="none"
+      hx-on:list-deleted="location.assign('/')">
       <div class="todos-card__header">
         <div class="todos-card__title">
           <a class="todos-card__back" href="/">← Lists</a>
@@ -42,7 +43,7 @@
           {{if $alldone}}checked{{end}}
           hx-post="{{.Vars.list_base}}/toggle-all"
           hx-target="#todo-list"
-          hx-swap="innerHTML" />
+          hx-swap="innerMorph" />
         {{end}}
       </div>
 
@@ -50,8 +51,9 @@
         method="post"
         action="{{.Vars.list_base}}/todos"
         hx-post="{{.Vars.list_base}}/todos"
-        hx-target="#todo-list"
-        hx-swap="beforeend">
+        hx-swap="none"
+        hx-disable="find input, find button"
+        hx-on::after:request="if (event.detail.ctx.response.status < 400) this.reset()">
         <label class="sr-only" for="new-todo">New todo</label>
         <input id="new-todo" name="label" type="text"
           placeholder="What needs to be done?"
@@ -63,14 +65,14 @@
         {{- block "todo-list-items" .}}
         {{- $base := .Vars.list_base}}
         {{- range .DB.QueryRows `SELECT id, label, done FROM todo WHERE owner_id = ? AND list_id = ? ORDER BY rowid` .Vars.owner .Vars.list.id}}
-        {{- set . "list_base" $base }}
+        {{- $_ := set . "list_base" $base }}
         {{block "todo-item" .}}
         <li class="todo-item{{if .done}} todo-item--done{{end}}" id="todo-{{.id}}">
           <input type="checkbox" {{if .done}}checked{{end}}
             title="Toggle done"
             hx-post="{{.list_base}}/todos/{{.id}}/toggle"
             hx-target="closest li"
-            hx-swap="outerHTML" />
+            hx-swap="outerMorph" />
           <span class="todo-item__label">{{.label}}</span>
           <button type="button" class="btn--danger"
             title="Delete"
@@ -112,10 +114,10 @@
   Used by local mutation responses and by the multi-tab SSE snapshot.
 */}}
 {{define "todo-meta-partials"}}
-<hx-partial hx-target="#toggle-all" hx-swap="outerHTML">
+<hx-partial hx-target="#toggle-all" hx-swap="outerMorph">
 {{- template "toggle-all" .}}
 </hx-partial>
-<hx-partial hx-target="#todo-footer" hx-swap="outerHTML">
+<hx-partial hx-target="#todo-footer" hx-swap="outerMorph">
 {{- template "todo-footer" .}}
 </hx-partial>
 {{end}}
@@ -123,10 +125,10 @@
 {{/*
   todo-sync-partials — idempotent multi-tab snapshot (list body + meta).
   Pushed over the bus as unnamed SSE data; hx-sse swaps the partials only.
-  Full list body (not one-row deltas) so the origin tab can safely re-apply.
+  Morph by id keeps stable nodes across local + SSE re-applies.
 */}}
 {{define "todo-sync-partials"}}
-<hx-partial hx-target="#todo-list" hx-swap="innerHTML">
+<hx-partial hx-target="#todo-list" hx-swap="innerMorph">
 {{- template "todo-list-items" .}}
 </hx-partial>
 {{- template "todo-meta-partials" .}}
@@ -142,7 +144,8 @@
 {{- end}}
 {{- /* FK ON DELETE CASCADE removes todos for this list. */}}
 {{- $_ := .DB.Exec `DELETE FROM todo_list WHERE id = ? AND owner_id = ?` .Vars.list.id .Vars.owner}}
-{{- template "notify" .}}
+{{- /* Other open tabs on this list navigate home via named SSE list-deleted. */}}
+{{- template "notify-list-deleted" .}}
 {{- /* From the list page, send the browser home; from the index, swap the panel. */}}
 {{- $hxTarget := .Req.Header.Get "HX-Target"}}
 {{- if and (ne $hxTarget "lists-index") (ne $hxTarget "#lists-index")}}
@@ -166,10 +169,11 @@
 {{- $_ := .DB.Exec `INSERT INTO todo (id, owner_id, list_id, label, done) VALUES (?, ?, ?, ?, 0)` $todoId .Vars.owner .Vars.list.id $label}}
 {{- template "notify" .}}
 {{- if eq (.Req.Header.Get "HX-Request") "true"}}
-  {{- /* Append one item; partials update footer/toggle-all and drop empty placeholder. */}}
-  {{- template "todo-item" (dict "id" $todoId "label" $label "done" 0 "list_base" .Vars.list_base)}}
-  <hx-partial hx-target="#todo-empty" hx-swap="delete"></hx-partial>
-  {{- template "todo-meta-partials" .}}
+  {{- /*
+    Same partial snapshot as SSE notify — not beforeend of one <li>.
+    Origin tab also receives the bus message; morph/snapshot is idempotent.
+  */}}
+  {{- template "todo-sync-partials" .}}
 {{- else}}
   {{- .Resp.AddHeader "Location" .Vars.list_path}}
   {{- .Resp.RespondWith 303 ""}}
@@ -210,7 +214,7 @@
 {{- /* Client uses hx-swap=delete on the <li>. If empty, partial restores empty state. */}}
 {{- $left := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner .Vars.list.id}}
 {{- if eq $left 0}}
-  <hx-partial hx-target="#todo-list" hx-swap="innerHTML">
+  <hx-partial hx-target="#todo-list" hx-swap="innerMorph">
     {{- template "todo-empty" .}}
   </hx-partial>
 {{- end}}
@@ -228,9 +232,16 @@
 */}}
 {{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id .Vars.owner}}
 {{- if eq $owned 0}}{{failf "list not found"}}{{end}}
-{{- /* Unnamed data: hx-sse swaps HTML (partials). Named "connected" is DOM-only. */}}
+{{- /*
+  Unnamed data: hx-sse swaps HTML (partials).
+  Named events are DOM-only: connected handshake; list-deleted → navigate home.
+*/}}
 {{- $.Flush.SendSSE "connected" "ok"}}
 {{- range .Bus.Subscribe (printf "todos:%s:%s" .Vars.owner $id)}}
+{{- if eq . "list-deleted"}}
+{{- $.Flush.SendSSE "list-deleted" ""}}
+{{- else}}
 {{- $.Flush.SendSSE "" .}}
+{{- end}}
 {{- end}}
 {{end}}

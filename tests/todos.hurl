@@ -49,7 +49,7 @@ HTTP 302
 header "Location" contains "/list/groceries/"
 header "Location" contains "{{list_id}}"
 
-# Add a todo (fine-grained: one <li> + hx-partial meta, not full #todos-app)
+# Add a todo (list+meta partials snapshot, not full #todos-app / not beforeend)
 POST http://localhost:8080/list/groceries/{{list_id}}/todos
 Content-Type: application/x-www-form-urlencoded
 HX-Request: true
@@ -62,6 +62,7 @@ todo_id: regex "id=\"todo-([^\"]+)\""
 body contains "Buy milk"
 body contains "todo-item"
 body contains "hx-partial"
+body contains "#todo-list"
 body not contains "id=todos-app"
 
 # Toggle the todo (returns that <li> + hx-partial footer/toggle-all)

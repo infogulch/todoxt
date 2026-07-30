@@ -127,7 +127,7 @@ then re-render) are therefore atomic without manual `BEGIN`/`COMMIT` in template
 
 ## Live sync design
 
-1. Each mutation writes SQLite **and** publishes an `<hx-partial>` snapshot
+1. Todo mutations write SQLite **and** publish an `<hx-partial>` snapshot
    (list body + toggle-all + footer) on bus topic `todos:{owner}:{listId}`.
 2. The list card uses htmx 4’s SSE extension: `hx-sse:connect` on `#todos-app`
    (with `hx-swap="none"`) GETs `/list/{slug}/{id}/events`, which ranges
@@ -136,6 +136,10 @@ then re-render) are therefore atomic without manual `BEGIN`/`COMMIT` in template
    **unnamed** messages whose `data` is the HTML snapshot. Unnamed events are
    swapped by hx-sse; the partials update `#todo-list`, `#toggle-all`, and
    `#todo-footer` without replacing the card shell (form, SSE connection, header).
+4. Deleting a list publishes the sentinel `list-deleted`. The SSE handler turns
+   that into a named `list-deleted` event; the card runs
+   `location.assign('/')` so other tabs leave the deleted list. The deleting
+   tab still uses `HX-Redirect` (list page) or swaps `lists-index` (home).
 
 Topics are per-list so a mutation on list A does not refresh list B’s open tabs.
 Users never receive each other’s HTML. The in-process `bus` provider is
@@ -148,13 +152,15 @@ Local edits do **not** re-render the whole card:
 
 | Action | Main swap | `<hx-partial>` |
 |---|---|---|
-| Add todo | `beforeend` on `#todo-list` (one `<li>`) | footer, toggle-all, delete empty placeholder |
-| Toggle todo | `outerHTML` on that `<li>` | footer, toggle-all |
-| Delete todo | `delete` on that `<li>` | footer, toggle-all; empty list restores `#todo-empty` |
-| Toggle all | `innerHTML` on `#todo-list` | footer, toggle-all |
+| Add todo | `none` (form stays; reset input after success) | list `innerMorph` + meta `outerMorph` (same as SSE) |
+| Toggle todo | `outerMorph` on that `<li>` | footer, toggle-all (`outerMorph`) |
+| Delete todo | `delete` on that `<li>` | meta; empty list `innerMorph`s `#todo-empty` |
+| Toggle all | `innerMorph` on `#todo-list` | footer, toggle-all |
 
-Multi-tab sync uses the same partial targets (full list body + meta), not a
-whole-card swap.
+Morph (idiomorph) matches stable `id`s so local + SSE re-applies keep nodes and
+focus instead of blowing away the list. Add uses the same snapshot as multi-tab
+SSE (idempotent). Compose disables the field and button for the request
+(`hx-disable`).
 
 **SSE ownership note:** HTML routes use `require-list` → real **404** when the list
 is missing or not yours. The SSE handler cannot: xtemplate commits
