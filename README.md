@@ -15,6 +15,7 @@ notes live on `/about`.
 | `GET` | `/` | Your lists |
 | `POST` | `/lists` | Create a list |
 | `GET` | `/list/{slug}/{id}/` | View & edit one list (lookup by **id**) |
+| `GET` | `/list/{slug}/{id}/app` | List card fragment (SSE multi-tab refresh) |
 | `DELETE` | `/list/{slug}/{id}` | Delete a list |
 | `POST` | `/list/{slug}/{id}/todos` | Add a todo |
 | `POST` | `/list/{slug}/{id}/todos/{todoId}/toggle` | Toggle a todo |
@@ -181,10 +182,9 @@ Caddyfile           # local dev (fixed identity headers)
 Caddyfile.github    # todo.xtemplate.dev + GitHub OAuth
 config.json         # plain xtemplate CLI config
 templates/
-  index.html                 # GET / shell + lists-index block + POST /lists
+  index.html                 # GET / page (lists-index block) + POST /lists
   list/{name}/{id}/
-    index.html               # list page + DELETE/POST/SSE method routes
-    app.html                 # GET …/app + todos-app / toggle-all / list-items / footer blocks
+    index.html               # list page (todos-app + nested blocks) + GET …/app + mutations + SSE
   about.html                 # tech-demo writeup
   assets/
     app.css
@@ -201,6 +201,15 @@ tests/
   todos.hurl                 # smoke + multi-step CRUD + SSE
   isolation.hurl             # per-user isolation (CLI; no header rewrite)
 ```
+
+### Template layout convention
+
+Main pages embed their HTML with `{{block "name" .}}…{{end}}` (define **and**
+render in place). Open `index.html` or `list/…/index.html` to see the page
+source; shared chrome (`nav`, `.head.html`) and pure helpers stay in `shared/`.
+Mutations and fragment routes re-invoke the same names with `{{template}}`.
+Row-level fragments (`todo-item`, `todo-empty`) use `{{define}}` because they
+appear in a `range`, not as a single fixed slot in the skeleton.
 
 ## Smoke tests
 

@@ -1,0 +1,12 @@
+[tools]
+hurl = "latest"
+"go:github.com/caddyserver/xcaddy/cmd/xcaddy" = "latest"
+
+[tasks.build]
+run = "xcaddy build --with github.com/infogulch/xtemplate/caddy/standard --replace github.com/infogulch/xtemplate=../xtemplate --with github.com/greenpau/caddy-security --output caddy"
+sources = ["../xtemplate/**/*.go"]
+outputs = ["caddy"]
+
+[tasks.start]
+depends = ["build"]
+run = "./caddy run"
