@@ -1,9 +1,55 @@
+{{/*
+  todos-app and fine-grained fragments for list mutations.
+
+  Mutations swap the smallest piece that changed (one item, list body, footer)
+  and use hx-swap-oob for secondary UI (count, toggle-all, empty state).
+  Live multi-tab sync uses htmx 4 hx-sse:connect (named "updated" → refresh).
+
+  {{block}} defines a named fragment and renders it in place so the same markup
+  is reused by mutation handlers via {{template}}.
+*/}}
+
+{{define "todo-empty"}}
+    <li class="todo-empty" id="todo-empty">No todos yet. Add one above.</li>
+{{end}}
+
+{{/*
+  todo-item — single row. Dot: id, label, done, list_base.
+*/}}
+{{define "todo-item"}}
+    <li class="todo-item{{if .done}} todo-item--done{{end}}" id="todo-{{.id}}">
+      <input type="checkbox" {{if .done}}checked{{end}}
+        title="Toggle done"
+        hx-post="{{.list_base}}/todos/{{.id}}/toggle"
+        hx-target="closest li"
+        hx-swap="outerHTML" />
+      <span class="todo-item__label">{{.label}}</span>
+      <button type="button" class="btn--danger"
+        title="Delete"
+        hx-delete="{{.list_base}}/todos/{{.id}}"
+        hx-target="closest li"
+        hx-swap="delete"
+        hx-confirm="Delete this todo?">✕</button>
+    </li>
+{{end}}
+
+{{/*
+  todo-oob-meta — re-render toggle-all + footer with hx-swap-oob for mutations.
+  Sets .Vars "hx_oob" so the shared blocks add the attribute only for this path
+  (avoids nested OOB when the full card is swapped over SSE).
+*/}}
+{{define "todo-oob-meta"}}
+{{- $_ := .Vars.Set "hx_oob" true}}
+{{- template "toggle-all" .}}
+{{- template "todo-footer" .}}
+{{- $_ := .Vars.Delete "hx_oob"}}
+{{end}}
+
 {{block "todos-app" .}}
 {{- template "require-list" .}}
 {{- $listCount := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` .Vars.owner}}
-{{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND COALESCE(SUM(done), 0) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner .Vars.list.id}}
-{{- $count := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ? AND done = 0` .Vars.owner .Vars.list.id}}
-<section id="todos-app" class="todos-card" data-list-path="{{.Vars.list_base}}">
+<section id="todos-app" class="todos-card" data-list-path="{{.Vars.list_base}}"
+  hx-sse:connect="{{.Vars.list_base}}/events">
   <div class="todos-card__header">
     <div class="todos-card__title">
       <a class="todos-card__back" href="/">← Lists</a>
@@ -16,19 +62,23 @@
       hx-confirm="Delete list “{{.Vars.list.name}}” and all its todos?">Delete list</button>
     {{- end}}
     <label class="sr-only" for="toggle-all">Mark all complete</label>
+    {{block "toggle-all" .}}
+{{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND COALESCE(SUM(done), 0) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner .Vars.list.id}}
     <input id="toggle-all" type="checkbox" title="Toggle all"
+      {{if .Vars.Has "hx_oob"}}hx-swap-oob="true"{{end}}
       {{if $alldone}}checked{{end}}
       hx-post="{{.Vars.list_base}}/toggle-all"
-      hx-target="#todos-app"
-      hx-swap="outerHTML" />
+      hx-target="#todo-list"
+      hx-swap="innerHTML" />
+    {{end}}
   </div>
 
   <form class="todos-card__compose"
     method="post"
     action="{{.Vars.list_base}}/todos"
     hx-post="{{.Vars.list_base}}/todos"
-    hx-target="#todos-app"
-    hx-swap="outerHTML">
+    hx-target="#todo-list"
+    hx-swap="beforeend">
     <label class="sr-only" for="new-todo">New todo</label>
     <input id="new-todo" name="label" type="text"
       placeholder="What needs to be done?"
@@ -37,32 +87,33 @@
   </form>
 
   <ul class="todo-list" id="todo-list">
+    {{block "todo-list-items" .}}
+    {{- $base := .Vars.list_base}}
     {{- range .DB.QueryRows `SELECT id, label, done FROM todo WHERE owner_id = ? AND list_id = ? ORDER BY rowid` .Vars.owner .Vars.list.id}}
-    <li class="todo-item{{if .done}} todo-item--done{{end}}" id="todo-{{.id}}">
-      <input type="checkbox" {{if .done}}checked{{end}}
-        title="Toggle done"
-        hx-post="{{$.Vars.list_base}}/todos/{{.id}}/toggle"
-        hx-target="#todos-app"
-        hx-swap="outerHTML" />
-      <span class="todo-item__label">{{.label}}</span>
-      <button type="button" class="btn--danger"
-        title="Delete"
-        hx-delete="{{$.Vars.list_base}}/todos/{{.id}}"
-        hx-target="#todos-app"
-        hx-swap="outerHTML"
-        hx-confirm="Delete this todo?">✕</button>
-    </li>
+    {{- template "todo-item" (dict "id" .id "label" .label "done" .done "list_base" $base)}}
     {{- else}}
-    <li class="todo-empty">No todos yet. Add one above.</li>
+    {{- template "todo-empty" .}}
     {{- end}}
+    {{end}}
   </ul>
 
-  <footer class="todos-card__footer">
+  {{block "todo-footer" .}}
+{{- $count := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ? AND done = 0` .Vars.owner .Vars.list.id}}
+  <footer id="todo-footer" class="todos-card__footer"{{if .Vars.Has "hx_oob"}} hx-swap-oob="true"{{end}}>
     <span>
       <strong>{{$count}}</strong>
       {{if eq $count 1}}item{{else}}items{{end}} left
     </span>
     <span class="htmx-indicator" aria-live="polite">Updating…</span>
   </footer>
+  {{end}}
+
+  {{/* Named SSE "updated" on #todos-app → re-fetch full card for multi-tab sync. */}}
+  <div hidden aria-hidden="true"
+    hx-get="{{.Vars.list_base}}/app"
+    hx-trigger="updated from:closest #todos-app"
+    hx-target="closest #todos-app"
+    hx-select="#todos-app"
+    hx-swap="outerHTML"></div>
 </section>
 {{end}}

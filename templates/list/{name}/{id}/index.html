@@ -3,7 +3,7 @@
 {{- if ne (.Req.PathValue "name") .Vars.list_slug}}
   {{- .Resp.AddHeader "Location" .Vars.list_path}}
   {{- .Resp.RespondWith 302 ""}}
-{{- else}}
+{{- end}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,27 +16,11 @@
     {{template "todos-app" .}}
     <p class="live-hint">
       <strong>Live sync:</strong> open this page in another tab. Edits appear here
-      over Server-Sent Events (per-list <code>bus</code> topic).
+      over Server-Sent Events (per-list <code>bus</code> topic via htmx <code>hx-sse</code>).
     </p>
   </main>
-  <script>
-    (function () {
-      const app = document.getElementById("todos-app");
-      const base = app && app.getAttribute("data-list-path");
-      if (!base) return;
-      const es = new EventSource(base + "/events");
-      es.onmessage = function (ev) {
-        if (ev.data === "connected") return;
-        htmx.ajax("GET", base + "/app", { target: "#todos-app", swap: "outerHTML" });
-      };
-      es.onerror = function () {
-        /* browser will reconnect; no-op */
-      };
-    })();
-  </script>
 </body>
 </html>
-{{- end}}
 
 {{define "DELETE /list/{name}/{id}"}}
 {{- template "require-list" .}}
@@ -72,7 +56,11 @@
 {{- $_ := .DB.Exec `INSERT INTO todo (id, owner_id, list_id, label, done) VALUES (?, ?, ?, ?, 0)` $todoId .Vars.owner .Vars.list.id $label}}
 {{- template "notify" .}}
 {{- if eq (.Req.Header.Get "HX-Request") "true"}}
-  {{- template "todos-app" .}}
+  {{- /* Append one item; OOB updates footer/toggle-all and drops empty placeholder. */}}
+  {{- template "todo-item" (dict "id" $todoId "label" $label "done" 0 "list_base" .Vars.list_base)}}
+  {{- /* Selector form avoids nesting OOB siblings inside an unclosed <li>. */}}
+  <div hx-swap-oob="delete:#todo-empty"></div>
+  {{- template "todo-oob-meta" .}}
 {{- else}}
   {{- .Resp.AddHeader "Location" .Vars.list_path}}
   {{- .Resp.RespondWith 303 ""}}
@@ -87,21 +75,37 @@
 {{- if $alldone}}{{$new = 0}}{{end}}
 {{- $_ := .DB.Exec `UPDATE todo SET done = ? WHERE owner_id = ? AND list_id = ?` $new .Vars.owner $listId}}
 {{- template "notify" .}}
-{{- template "todos-app" .}}
+{{- /* Swap list body; OOB footer + toggle-all. */}}
+{{- template "todo-list-items" .}}
+{{- template "todo-oob-meta" .}}
 {{end}}
 
 {{define "POST /list/{name}/{id}/todos/{todoId}/toggle"}}
 {{- template "require-list" .}}
-{{- $_ := .DB.Exec `UPDATE todo SET done = NOT done WHERE id = ? AND list_id = ? AND owner_id = ?` (.Req.PathValue "todoId") .Vars.list.id .Vars.owner}}
+{{- $todoId := .Req.PathValue "todoId"}}
+{{- $_ := .DB.Exec `UPDATE todo SET done = NOT done WHERE id = ? AND list_id = ? AND owner_id = ?` $todoId .Vars.list.id .Vars.owner}}
 {{- template "notify" .}}
-{{- template "todos-app" .}}
+{{- $r := try .DB "QueryRow" `SELECT id, label, done FROM todo WHERE id = ? AND list_id = ? AND owner_id = ?` $todoId .Vars.list.id .Vars.owner}}
+{{- if not $r.OK}}
+  {{- .Resp.RespondWith 404 (.X.Template "/shared/.404.html" .)}}
+{{- end}}
+{{- $t := $r.Value}}
+{{- template "todo-item" (dict "id" (index $t "id") "label" (index $t "label") "done" (index $t "done") "list_base" .Vars.list_base)}}
+{{- template "todo-oob-meta" .}}
 {{end}}
 
 {{define "DELETE /list/{name}/{id}/todos/{todoId}"}}
 {{- template "require-list" .}}
 {{- $_ := .DB.Exec `DELETE FROM todo WHERE id = ? AND list_id = ? AND owner_id = ?` (.Req.PathValue "todoId") .Vars.list.id .Vars.owner}}
 {{- template "notify" .}}
-{{- template "todos-app" .}}
+{{- /* Client uses hx-swap=delete on the <li>. If the list is empty, OOB restore empty state. */}}
+{{- $left := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner .Vars.list.id}}
+{{- if eq $left 0}}
+  <ul id="todo-list" hx-swap-oob="true">
+    {{- template "todo-empty" .}}
+  </ul>
+{{- end}}
+{{- template "todo-oob-meta" .}}
 {{end}}
 
 {{define "SSE /list/{name}/{id}/events"}}
@@ -110,13 +114,14 @@
 {{- /*
   Ownership check only — .Resp.RespondWith is buffered-only.
   xtemplate commits text/event-stream headers before the template runs, so
-  failf cannot change the status (client sees 200 + short body; EventSource
+  failf cannot change the status (client sees 200 + short body; hx-sse
   may reconnect). HTML routes use require-list → real 404.
 */}}
 {{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id .Vars.owner}}
 {{- if eq $owned 0}}{{failf "list not found"}}{{end}}
-{{- $.Flush.SendSSE "" "connected"}}
+{{- /* Named events: htmx 4 hx-sse dispatches them as DOM events (no swap). */}}
+{{- $.Flush.SendSSE "connected" "ok"}}
 {{- range .Bus.Subscribe (printf "todos:%s:%s" .Vars.owner $id)}}
-{{- $.Flush.SendSSE "" .}}
+{{- $.Flush.SendSSE "updated" .}}
 {{- end}}
 {{end}}

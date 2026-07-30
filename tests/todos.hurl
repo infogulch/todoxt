@@ -49,7 +49,7 @@ HTTP 302
 header "Location" contains "/list/groceries/"
 header "Location" contains "{{list_id}}"
 
-# Add a todo (htmx fragment)
+# Add a todo (fine-grained: one <li> + OOB meta, not full #todos-app)
 POST http://localhost:8080/list/groceries/{{list_id}}/todos
 Content-Type: application/x-www-form-urlencoded
 HX-Request: true
@@ -60,22 +60,28 @@ HTTP 200
 todo_id: regex "id=\"todo-([^\"]+)\""
 [Asserts]
 body contains "Buy milk"
-body contains "id=todos-app"
+body contains "todo-item"
+body contains "hx-swap-oob"
+body not contains "id=todos-app"
 
-# Toggle the todo
+# Toggle the todo (returns that <li> + OOB footer/toggle-all)
 POST http://localhost:8080/list/groceries/{{list_id}}/todos/{{todo_id}}/toggle
 HX-Request: true
 HTTP 200
 [Asserts]
 body contains "Buy milk"
 body contains "todo-item--done"
+body contains "hx-swap-oob"
+body not contains "id=todos-app"
 
-# Delete the todo
+# Delete the todo (empty main + OOB empty state when last item)
 DELETE http://localhost:8080/list/groceries/{{list_id}}/todos/{{todo_id}}
 HX-Request: true
 HTTP 200
 [Asserts]
 body contains "No todos yet"
+body contains "hx-swap-oob"
+body not contains "id=todos-app"
 
 # Empty label → 400
 POST http://localhost:8080/list/groceries/{{list_id}}/todos
@@ -178,4 +184,7 @@ HTTP 200
 header "Content-Type" contains "text/css"
 
 GET http://localhost:8080/assets/htmx.min.js
+HTTP 200
+
+GET http://localhost:8080/assets/hx-sse.min.js
 HTTP 200

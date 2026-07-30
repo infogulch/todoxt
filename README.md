@@ -38,7 +38,7 @@ canonical path (with trailing slash). The page URL uses a trailing slash
 | Live multi-tab sync | `.Bus` + `SSE /list/.../events` (per list) |
 | Client-facing 4xx outcomes | `.Resp.RespondWith` + shared error templates |
 | Load helpers via `.Vars` | `with-owner`, `require-list` (idempotent) in `shared/.helpers.html` |
-| htmx 4 progressive enhancement | pinned `templates/assets/htmx.min.js` (v4.0.0-beta5) |
+| htmx 4 progressive enhancement | pinned `templates/assets/htmx.min.js` (v4.0.0-beta5) + `hx-sse.min.js` |
 | Content-hashed static assets | `.X.StaticFileHash` |
 | Auth outside the app | Caddy + [caddy-security](https://docs.authcrunch.com/) (GitHub OAuth) |
 
@@ -129,19 +129,35 @@ then re-render) are therefore atomic without manual `BEGIN`/`COMMIT` in template
 
 1. Each mutation writes SQLite **and** publishes `"updated"` on bus topic
    `todos:{owner}:{listId}`.
-2. Each list tab opens `EventSource("/list/{slug}/{id}/events")`, which ranges
-   `.Bus.Subscribe` for that owner+list and streams SSE.
-3. On a ping, the tab `htmx.ajax`s `GET /list/{slug}/{id}/app` and swaps `#todos-app`.
+2. The list card uses htmx 4’s built-in SSE extension: `hx-sse:connect` on
+   `#todos-app` GETs `/list/{slug}/{id}/events`, which ranges `.Bus.Subscribe`
+   for that owner+list.
+3. The stream sends **named** events (`connected`, `updated`). Named events are
+   dispatched as DOM events (not swapped). A hidden listener on the card
+   `hx-get`s `/list/{slug}/{id}/app` on `updated` and outerHTML-swaps `#todos-app`.
 
 Topics are per-list so a mutation on list A does not refresh list B’s open tabs.
 Users never receive each other’s HTML. The in-process `bus` provider is
 single-process only (fine for one Caddy instance).
 
+### Fine-grained mutations
+
+Local edits do **not** re-render the whole card:
+
+| Action | Main swap | OOB |
+|---|---|---|
+| Add todo | `beforeend` on `#todo-list` (one `<li>`) | footer, toggle-all, delete empty placeholder |
+| Toggle todo | `outerHTML` on that `<li>` | footer, toggle-all |
+| Delete todo | `delete` on that `<li>` | footer, toggle-all; empty list restores `#todo-empty` |
+| Toggle all | `innerHTML` on `#todo-list` | footer, toggle-all |
+
+Multi-tab sync still refreshes the full `#todos-app` (we only know “something changed”).
+
 **SSE ownership note:** HTML routes use `require-list` → real **404** when the list
 is missing or not yours. The SSE handler cannot: xtemplate commits
 `text/event-stream` headers before the template runs, and `.Resp.RespondWith` is
 buffered-only. An unowned stream aborts with `failf` (logged) but the client still
-sees **200** and a short body; `EventSource` may reconnect. Do not treat SSE status
+sees **200** and a short body; `hx-sse` may reconnect. Do not treat SSE status
 as the isolation boundary — topics are still scoped to `owner:listId`, and HTML
 mutations always go through `require-list`.
 
@@ -165,20 +181,20 @@ Caddyfile           # local dev (fixed identity headers)
 Caddyfile.github    # todo.xtemplate.dev + GitHub OAuth
 config.json         # plain xtemplate CLI config
 templates/
-  index.html                 # GET / shell + POST /lists
+  index.html                 # GET / shell + lists-index block + POST /lists
   list/{name}/{id}/
     index.html               # list page + DELETE/POST/SSE method routes
-    app.html                 # GET …/app fragment (todos-app block)
+    app.html                 # GET …/app + todos-app / toggle-all / list-items / footer blocks
   about.html                 # tech-demo writeup
   assets/
     app.css
     htmx.min.js              # htmx 4.0.0-beta5
+    hx-sse.min.js            # htmx 4 SSE extension (hx-sse:connect)
   shared/
     .head.html               # partial (no route)
     .nav.html
     .schema.html             # INIT SQLite schema (FK + CASCADE)
     .helpers.html            # with-owner, ensure-lists, require-list, notify, list-base/path
-    .lists-index.html        # lists-index fragment (GET / + delete swap)
     .404.html                # RespondWith body for missing list
     .error.html              # RespondWith body for 400/409 client errors
 tests/

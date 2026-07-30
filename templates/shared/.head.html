@@ -4,3 +4,5 @@
 <link rel="stylesheet" href="/assets/app.css?hash={{$css}}" integrity="{{$css}}">
 {{- $js := .X.StaticFileHash `/assets/htmx.min.js`}}
 <script src="/assets/htmx.min.js?hash={{$js}}" integrity="{{$js}}"></script>
+{{- $sse := .X.StaticFileHash `/assets/hx-sse.min.js`}}
+<script src="/assets/hx-sse.min.js?hash={{$sse}}" integrity="{{$sse}}"></script>
