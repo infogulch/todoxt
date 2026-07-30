@@ -1,15 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>Bad request — todoxt</title>
+  {{- $title := or (.Vars.Get "error_title") "Error"}}
+  <title>{{$title}} — todoxt</title>
   {{template "/shared/.head.html" .}}
 </head>
 <body>
   {{template "nav" .}}
   <main class="site-main">
     <section class="hero">
-      <h1>Bad request</h1>
-      <p>The form could not be submitted. Check the fields and try again.</p>
+      <h1>{{$title}}</h1>
+      {{- $msg := .Vars.Get "error"}}
+      <p>{{if $msg}}{{$msg}}{{else}}Something went wrong. Try again.{{end}}</p>
       <div class="cta-row">
         <a class="btn" href="/">Back to your lists</a>
       </div>

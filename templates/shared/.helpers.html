@@ -1,47 +1,70 @@
-{{/* notify publishes a lightweight ping on the per-list bus topic so other tabs refresh. */}}
-{{define "notify"}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $listId := .Req.PathValue "id"}}
-{{- if ne $listId ""}}
-  {{- $_ := .Bus.Publish (printf "todos:%s:%s" $owner $listId) "updated"}}
+{{/*
+  with-owner — set .Vars "owner" from X-Token-Subject (default "anonymous").
+  Idempotent: safe to call more than once per request.
+*/}}
+{{define "with-owner"}}
+{{- if not (.Vars.Has "owner")}}
+  {{- $_ := .Vars.Set "owner" (or (.Req.Header.Get "X-Token-Subject") "anonymous")}}
 {{- end}}
+{{end}}
+
+{{/*
+  notify publishes a lightweight ping on the per-list bus topic so other tabs refresh.
+  Requires require-list (uses .Vars.owner and .Vars.list.id).
+*/}}
+{{define "notify"}}
+{{- $_ := .Bus.Publish (printf "todos:%s:%s" .Vars.owner .Vars.list.id) "updated"}}
 {{end}}
 
 {{/*
   ensure-lists creates a default "My Todos" list when the owner has none.
-  Call only from the lists index (GET /) and POST /lists — not from list routes.
+  Call only from the lists index (GET / / lists-index fragment) — not from POST /lists
+  or list routes. Creating a list already satisfies "at least one list".
 */}}
 {{define "ensure-lists"}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $n := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` $owner}}
+{{- template "with-owner" .}}
+{{- $n := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` .Vars.owner}}
 {{- if eq $n 0}}
   {{- $id := uuidv4}}
-  {{- $_ := .DB.Exec `INSERT INTO todo_list (id, owner_id, name) VALUES (?, ?, ?)` $id $owner "My Todos"}}
+  {{- $_ := .DB.Exec `INSERT INTO todo_list (id, owner_id, name) VALUES (?, ?, ?)` $id .Vars.owner "My Todos"}}
 {{- end}}
 {{end}}
 
 {{/*
-  require-list loads the path list for the current owner into .Vars "list"
-  (map with id, name). Missing / not owned → 404 (replaces buffer).
-  Call: {{template "require-list" .}} then $list := .Vars.Get "list"
+  require-list loads the path list for the current owner into .Vars:
+    owner      — authenticated owner (via with-owner)
+    list       — map with id, name
+    list_slug  — kebab-case decoration
+    list_base  — /list/{slug}/{id} (no trailing slash)
+    list_path  — list_base + /
+  Missing / not owned → 404 (replaces buffer).
+  Idempotent: if "list" is already set, does nothing.
+  Call: {{template "require-list" .}} then use .Vars.list / .Vars.list_base / …
 */}}
 {{define "require-list"}}
-  {{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-  {{- $id := .Req.PathValue "id"}}
-  {{- $r := try .DB "QueryRow" `
-    SELECT id, name FROM todo_list
-    WHERE id = ? AND owner_id = ?` $id $owner}}
-  {{- if not $r.OK}}
-    {{.Resp.RespondWith 404 (.X.Template "/shared/.404.html" .)}}
+  {{- if not (.Vars.Has "list")}}
+    {{- template "with-owner" .}}
+    {{- $id := .Req.PathValue "id"}}
+    {{- $r := try .DB "QueryRow" `
+      SELECT id, name FROM todo_list
+      WHERE id = ? AND owner_id = ?` $id .Vars.owner}}
+    {{- if not $r.OK}}
+      {{.Resp.RespondWith 404 (.X.Template "/shared/.404.html" .)}}
+    {{- end}}
+    {{- $list := $r.Value}}
+    {{- $_ := .Vars.Set "list" $list}}
+    {{- $_ := .Vars.Set "list_slug" (index $list "name" | trim | kebabcase | default "list")}}
+    {{- $row := dict "name" (index $list "name") "id" (index $list "id")}}
+    {{- /* .X.Template returns template.HTML; headers and path vars need string. */}}
+    {{- $_ := .Vars.Set "list_base" (printf "%s" (.X.Template "list-base" $row))}}
+    {{- $_ := .Vars.Set "list_path" (printf "%s" (.X.Template "list-path" $row))}}
   {{- end}}
-  {{- $_ := .Vars.Set "list" $r.Value -}}
 {{end}}
 
 {{/*
-  list-path — canonical page URL for a list (trailing slash; file-based index route).
-  list-base — same without trailing slash; use for DELETE and as a prefix for nested routes.
-  Name is URL decoration only; id is the key.
+  list-base / list-path — single source of truth for list URLs.
   Call: {{template "list-path" (dict "name" $name "id" $id)}}
+  Also used by require-list via .X.Template.
 */}}
-{{define "list-base"}}{{- $slug := kebabcase (trim .name) -}}{{- if eq $slug "" -}}{{- $slug = "list" -}}{{- end -}}/list/{{$slug}}/{{.id}}{{- end}}
+{{define "list-base"}}/list/{{.name | trim | kebabcase | default "list"}}/{{.id}}{{end}}
 {{define "list-path"}}{{template "list-base" .}}/{{end}}

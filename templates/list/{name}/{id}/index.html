@@ -1,19 +1,13 @@
 {{- template "require-list" .}}
-{{- $list := .Vars.Get "list"}}
-{{- $id := index $list "id"}}
-{{- $listName := index $list "name"}}
-{{- $nameParam := .Req.PathValue "name"}}
-{{- $slug := kebabcase (trim $listName)}}
-{{- if eq $slug ""}}{{$slug = "list"}}{{end}}
 {{- /* Name is cosmetic: redirect to the canonical slug when it drifts. */}}
-{{- if ne $nameParam $slug}}
-  {{- $_ := .Resp.AddHeader "Location" (printf "/list/%s/%s/" $slug $id)}}
+{{- if ne (.Req.PathValue "name") .Vars.list_slug}}
+  {{- .Resp.AddHeader "Location" .Vars.list_path}}
   {{- .Resp.RespondWith 302 ""}}
 {{- else}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>{{$listName}} — todoxt</title>
+  <title>{{.Vars.list.name}} — todoxt</title>
   {{template "/shared/.head.html" .}}
 </head>
 <body>
@@ -46,85 +40,83 @@
 
 {{define "DELETE /list/{name}/{id}"}}
 {{- template "require-list" .}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $id := .Req.PathValue "id"}}
-{{- $n := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` $owner}}
-{{- if le $n 1}}{{.Resp.RespondWith 409 "cannot delete the last list"}}{{end}}
+{{- $n := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` .Vars.owner}}
+{{- if le $n 1}}
+  {{- .Vars.Set "error_title" "Conflict"}}
+  {{- .Vars.Set "error" "cannot delete the last list"}}
+  {{- .Resp.RespondWith 409 (.X.Template "/shared/.error.html" .)}}
+{{- end}}
 {{- /* FK ON DELETE CASCADE removes todos for this list. */}}
-{{- $_ := .DB.Exec `DELETE FROM todo_list WHERE id = ? AND owner_id = ?` $id $owner}}
+{{- $_ := .DB.Exec `DELETE FROM todo_list WHERE id = ? AND owner_id = ?` .Vars.list.id .Vars.owner}}
 {{- template "notify" .}}
 {{- /* From the list page, send the browser home; from the index, swap the panel. */}}
 {{- $hxTarget := .Req.Header.Get "HX-Target"}}
-{{- if or (eq $hxTarget "lists-index") (eq $hxTarget "#lists-index")}}
-  {{- template "lists-index" .}}
+{{- if and (ne $hxTarget "lists-index") (ne $hxTarget "#lists-index")}}
+  {{- .Resp.AddHeader "HX-Redirect" "/"}}
+  {{- .Resp.RespondWith 200 ""}}
 {{- else}}
-  {{- $_ := .Resp.AddHeader "HX-Redirect" "/"}}
   {{- template "lists-index" .}}
 {{- end}}
 {{end}}
 
 {{define "POST /list/{name}/{id}/todos"}}
 {{- template "require-list" .}}
-{{- $list := .Vars.Get "list"}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $listId := index $list "id"}}
 {{- .Req.ParseForm}}
 {{- $label := trim (.Req.FormValue "label")}}
-{{- if eq $label ""}}{{.Resp.RespondWith 400 "label is required"}}{{end}}
+{{- if eq $label ""}}
+  {{- .Vars.Set "error_title" "Bad request"}}
+  {{- .Vars.Set "error" "label is required"}}
+  {{- .Resp.RespondWith 400 (.X.Template "/shared/.error.html" .)}}
+{{- end}}
 {{- $todoId := uuidv4}}
-{{- $_ := .DB.Exec `INSERT INTO todo (id, owner_id, list_id, label, done) VALUES (?, ?, ?, ?, 0)` $todoId $owner $listId $label}}
+{{- $_ := .DB.Exec `INSERT INTO todo (id, owner_id, list_id, label, done) VALUES (?, ?, ?, ?, 0)` $todoId .Vars.owner .Vars.list.id $label}}
 {{- template "notify" .}}
 {{- if eq (.Req.Header.Get "HX-Request") "true"}}
   {{- template "todos-app" .}}
 {{- else}}
-  {{- $listName := index $list "name"}}
-  {{- $slug := kebabcase (trim $listName)}}
-  {{- if eq $slug ""}}{{$slug = "list"}}{{end}}
-  {{- $_ := .Resp.AddHeader "Location" (printf "/list/%s/%s/" $slug $listId)}}
+  {{- .Resp.AddHeader "Location" .Vars.list_path}}
   {{- .Resp.RespondWith 303 ""}}
 {{- end}}
 {{end}}
 
 {{define "POST /list/{name}/{id}/toggle-all"}}
 {{- template "require-list" .}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $listId := .Req.PathValue "id"}}
-{{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND SUM(done) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` $owner $listId}}
+{{- $listId := .Vars.list.id}}
+{{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND COALESCE(SUM(done), 0) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner $listId}}
 {{- $new := 1}}
 {{- if $alldone}}{{$new = 0}}{{end}}
-{{- $_ := .DB.Exec `UPDATE todo SET done = ? WHERE owner_id = ? AND list_id = ?` $new $owner $listId}}
+{{- $_ := .DB.Exec `UPDATE todo SET done = ? WHERE owner_id = ? AND list_id = ?` $new .Vars.owner $listId}}
 {{- template "notify" .}}
 {{- template "todos-app" .}}
 {{end}}
 
 {{define "POST /list/{name}/{id}/todos/{todoId}/toggle"}}
 {{- template "require-list" .}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $listId := .Req.PathValue "id"}}
-{{- $todoId := .Req.PathValue "todoId"}}
-{{- $_ := .DB.Exec `UPDATE todo SET done = NOT done WHERE id = ? AND list_id = ? AND owner_id = ?` $todoId $listId $owner}}
+{{- $_ := .DB.Exec `UPDATE todo SET done = NOT done WHERE id = ? AND list_id = ? AND owner_id = ?` (.Req.PathValue "todoId") .Vars.list.id .Vars.owner}}
 {{- template "notify" .}}
 {{- template "todos-app" .}}
 {{end}}
 
 {{define "DELETE /list/{name}/{id}/todos/{todoId}"}}
 {{- template "require-list" .}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
-{{- $listId := .Req.PathValue "id"}}
-{{- $todoId := .Req.PathValue "todoId"}}
-{{- $_ := .DB.Exec `DELETE FROM todo WHERE id = ? AND list_id = ? AND owner_id = ?` $todoId $listId $owner}}
+{{- $_ := .DB.Exec `DELETE FROM todo WHERE id = ? AND list_id = ? AND owner_id = ?` (.Req.PathValue "todoId") .Vars.list.id .Vars.owner}}
 {{- template "notify" .}}
 {{- template "todos-app" .}}
 {{end}}
 
 {{define "SSE /list/{name}/{id}/events"}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
+{{- template "with-owner" .}}
 {{- $id := .Req.PathValue "id"}}
-{{- /* RespondWith is buffered-only; SSE uses a simple ownership check. */}}
-{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id $owner}}
+{{- /*
+  Ownership check only — .Resp.RespondWith is buffered-only.
+  xtemplate commits text/event-stream headers before the template runs, so
+  failf cannot change the status (client sees 200 + short body; EventSource
+  may reconnect). HTML routes use require-list → real 404.
+*/}}
+{{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id .Vars.owner}}
 {{- if eq $owned 0}}{{failf "list not found"}}{{end}}
 {{- $.Flush.SendSSE "" "connected"}}
-{{- range .Bus.Subscribe (printf "todos:%s:%s" $owner $id)}}
+{{- range .Bus.Subscribe (printf "todos:%s:%s" .Vars.owner $id)}}
 {{- $.Flush.SendSSE "" .}}
 {{- end}}
 {{end}}

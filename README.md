@@ -37,7 +37,7 @@ canonical path (with trailing slash). The page URL uses a trailing slash
 | Per-user data isolation | `owner_id` + `X-Token-Subject` |
 | Live multi-tab sync | `.Bus` + `SSE /list/.../events` (per list) |
 | Client-facing 4xx outcomes | `.Resp.RespondWith` + shared error templates |
-| Load helpers via `.Vars` | `require-list` in `shared/.helpers.html` |
+| Load helpers via `.Vars` | `with-owner`, `require-list` (idempotent) in `shared/.helpers.html` |
 | htmx 4 progressive enhancement | pinned `templates/assets/htmx.min.js` (v4.0.0-beta5) |
 | Content-hashed static assets | `.X.StaticFileHash` |
 | Auth outside the app | Caddy + [caddy-security](https://docs.authcrunch.com/) (GitHub OAuth) |
@@ -137,6 +137,14 @@ Topics are per-list so a mutation on list A does not refresh list B’s open tab
 Users never receive each other’s HTML. The in-process `bus` provider is
 single-process only (fine for one Caddy instance).
 
+**SSE ownership note:** HTML routes use `require-list` → real **404** when the list
+is missing or not yours. The SSE handler cannot: xtemplate commits
+`text/event-stream` headers before the template runs, and `.Resp.RespondWith` is
+buffered-only. An unowned stream aborts with `failf` (logged) but the client still
+sees **200** and a short body; `EventSource` may reconnect. Do not treat SSE status
+as the isolation boundary — topics are still scoped to `owner:listId`, and HTML
+mutations always go through `require-list`.
+
 ## CSRF / cross-origin
 
 xtemplate enables Go’s `CrossOriginProtection` by default for browser mutations.
@@ -157,7 +165,7 @@ Caddyfile           # local dev (fixed identity headers)
 Caddyfile.github    # todo.xtemplate.dev + GitHub OAuth
 config.json         # plain xtemplate CLI config
 templates/
-  index.html                 # GET / — lists index + POST /lists
+  index.html                 # GET / shell + POST /lists
   list/{name}/{id}/
     index.html               # list page + DELETE/POST/SSE method routes
     app.html                 # GET …/app fragment (todos-app block)
@@ -169,11 +177,13 @@ templates/
     .head.html               # partial (no route)
     .nav.html
     .schema.html             # INIT SQLite schema (FK + CASCADE)
-    .helpers.html            # ensure-lists, require-list, notify, list-path
+    .helpers.html            # with-owner, ensure-lists, require-list, notify, list-base/path
+    .lists-index.html        # lists-index fragment (GET / + delete swap)
     .404.html                # RespondWith body for missing list
-    .400.html                # optional HTML validation page
+    .error.html              # RespondWith body for 400/409 client errors
 tests/
   todos.hurl                 # smoke + multi-step CRUD + SSE
+  isolation.hurl             # per-user isolation (CLI; no header rewrite)
 ```
 
 ## Smoke tests
@@ -186,8 +196,14 @@ rm -f todos.db todos.db-shm todos.db-wal
 hurl --test tests/todos.hurl
 ```
 
-Identity isolation tests need the CLI (or any setup that does not rewrite
-`X-Token-Subject`); the local Caddyfile always injects `dev`.
+Per-user isolation (different `X-Token-Subject` values) needs the CLI or any
+setup that does not rewrite identity headers — the local Caddyfile always
+injects `dev`:
+
+```sh
+# separate process: xtemplate -f config.json
+hurl --test tests/isolation.hurl
+```
 
 ## Notes
 

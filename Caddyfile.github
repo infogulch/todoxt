@@ -74,7 +74,9 @@ todo.xtemplate.dev {
 	route {
 		authorize with todo_policy
 		xtemplate {
-			templates_dir templates
+			controller os {
+				path templates
+			}
 
 			crossorigin {
 				trusted_origins https://todo.xtemplate.dev

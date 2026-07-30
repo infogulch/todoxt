@@ -19,7 +19,7 @@
         <li><strong>File-based routes</strong> and method routes defined in HTML templates</li>
         <li><strong>SQLite</strong> via the <code>sql</code> provider (per GitHub user)</li>
         <li><strong>Multiple lists</strong> with clean REST URLs: <code>/list/{slug}/{id}</code></li>
-        <li><strong>Live multi-tab sync</strong> with the in-process <code>bus</code> + <code>SSE</code> (per list)</li>
+        <li><strong>Live multi-tab sync</strong> with the in-process <code>bus</code> + <code>SSE</code> (per list; HTML 404s unowned lists — SSE cannot change status after stream headers)</li>
         <li><strong>htmx 4</strong> for progressive enhancement without a SPA</li>
         <li><strong>Auth in Caddy</strong> (GitHub OAuth via caddy-security); templates only see identity headers</li>
       </ul>

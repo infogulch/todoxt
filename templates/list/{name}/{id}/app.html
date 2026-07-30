@@ -1,39 +1,32 @@
 {{block "todos-app" .}}
-{{- $owner := or (.Req.Header.Get "X-Token-Subject") "anonymous"}}
 {{- template "require-list" .}}
-{{- $list := .Vars.Get "list"}}
-{{- $listId := index $list "id"}}
-{{- $listName := index $list "name"}}
-{{- $slug := kebabcase (trim $listName)}}
-{{- if eq $slug ""}}{{$slug = "list"}}{{end}}
-{{- $base := printf "/list/%s/%s" $slug $listId}}
-{{- $listCount := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` $owner}}
-{{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND COALESCE(SUM(done), 0) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` $owner $listId}}
-{{- $count := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ? AND done = 0` $owner $listId}}
-<section id="todos-app" class="todos-card" data-list-path="{{$base}}">
+{{- $listCount := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` .Vars.owner}}
+{{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND COALESCE(SUM(done), 0) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner .Vars.list.id}}
+{{- $count := .DB.QueryVal `SELECT COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ? AND done = 0` .Vars.owner .Vars.list.id}}
+<section id="todos-app" class="todos-card" data-list-path="{{.Vars.list_base}}">
   <div class="todos-card__header">
     <div class="todos-card__title">
       <a class="todos-card__back" href="/">← Lists</a>
-      <h1>{{$listName}}</h1>
+      <h1>{{.Vars.list.name}}</h1>
     </div>
     {{- if gt $listCount 1}}
     <button type="button" class="btn--danger list-delete"
       title="Delete this list"
-      hx-delete="{{$base}}"
-      hx-confirm="Delete list “{{$listName}}” and all its todos?">Delete list</button>
+      hx-delete="{{.Vars.list_base}}"
+      hx-confirm="Delete list “{{.Vars.list.name}}” and all its todos?">Delete list</button>
     {{- end}}
     <label class="sr-only" for="toggle-all">Mark all complete</label>
     <input id="toggle-all" type="checkbox" title="Toggle all"
       {{if $alldone}}checked{{end}}
-      hx-post="{{$base}}/toggle-all"
+      hx-post="{{.Vars.list_base}}/toggle-all"
       hx-target="#todos-app"
       hx-swap="outerHTML" />
   </div>
 
   <form class="todos-card__compose"
     method="post"
-    action="{{$base}}/todos"
-    hx-post="{{$base}}/todos"
+    action="{{.Vars.list_base}}/todos"
+    hx-post="{{.Vars.list_base}}/todos"
     hx-target="#todos-app"
     hx-swap="outerHTML">
     <label class="sr-only" for="new-todo">New todo</label>
@@ -44,17 +37,17 @@
   </form>
 
   <ul class="todo-list" id="todo-list">
-    {{- range .DB.QueryRows `SELECT id, label, done FROM todo WHERE owner_id = ? AND list_id = ? ORDER BY id` $owner $listId}}
+    {{- range .DB.QueryRows `SELECT id, label, done FROM todo WHERE owner_id = ? AND list_id = ? ORDER BY rowid` .Vars.owner .Vars.list.id}}
     <li class="todo-item{{if .done}} todo-item--done{{end}}" id="todo-{{.id}}">
       <input type="checkbox" {{if .done}}checked{{end}}
         title="Toggle done"
-        hx-post="{{$base}}/todos/{{.id}}/toggle"
+        hx-post="{{$.Vars.list_base}}/todos/{{.id}}/toggle"
         hx-target="#todos-app"
         hx-swap="outerHTML" />
       <span class="todo-item__label">{{.label}}</span>
       <button type="button" class="btn--danger"
         title="Delete"
-        hx-delete="{{$base}}/todos/{{.id}}"
+        hx-delete="{{$.Vars.list_base}}/todos/{{.id}}"
         hx-target="#todos-app"
         hx-swap="outerHTML"
         hx-confirm="Delete this todo?">✕</button>

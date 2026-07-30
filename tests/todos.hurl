@@ -22,7 +22,7 @@ body contains "About todoxt"
 body contains "Live multi-tab sync"
 body contains "CrossOriginProtection"
 
-# Create a list (htmx)
+# Create a list (htmx) — redirect only, no fragment body
 POST http://localhost:8080/lists
 Content-Type: application/x-www-form-urlencoded
 HX-Request: true
@@ -31,10 +31,9 @@ name: Groceries
 HTTP 200
 [Captures]
 groceries_path: header "HX-Redirect"
-list_id: regex "/list/groceries/([0-9a-fA-F-]+)/"
+list_id: header "HX-Redirect" regex "/list/groceries/([0-9a-fA-F-]+)/"
 [Asserts]
 header "HX-Redirect" contains "/list/groceries/"
-body contains "Groceries"
 
 # Canonical list page
 GET http://localhost:8080{{groceries_path}}
@@ -87,6 +86,7 @@ label:
 HTTP 400
 [Asserts]
 body contains "label is required"
+body contains "Bad request"
 
 # Missing list → 404
 GET http://localhost:8080/list/my-todos/00000000-0000-0000-0000-000000000000/
@@ -106,13 +106,14 @@ HX-Request: true
 name: Temp Delete Me
 HTTP 200
 [Captures]
-temp_id: regex "/list/temp-delete-me/([0-9a-fA-F-]+)/"
+temp_id: header "HX-Redirect" regex "/list/temp-delete-me/([0-9a-fA-F-]+)/"
 [Asserts]
 header "HX-Redirect" contains "/list/temp-delete-me/"
 
+# HX-Target without "#": hurl treats "#" as starting a comment.
 DELETE http://localhost:8080/list/temp-delete-me/{{temp_id}}
 HX-Request: true
-HX-Target: #lists-index
+HX-Target: lists-index
 HTTP 200
 [Asserts]
 body contains "id=lists-index"
@@ -122,7 +123,7 @@ body not contains "Temp Delete Me"
 # Home still has My Todos; delete Groceries first, then attempt My Todos.
 DELETE http://localhost:8080/list/groceries/{{list_id}}
 HX-Request: true
-HX-Target: #lists-index
+HX-Target: lists-index
 HTTP 200
 [Asserts]
 body contains "id=lists-index"
@@ -140,6 +141,7 @@ HX-Request: true
 HTTP 409
 [Asserts]
 body contains "cannot delete the last list"
+body contains "Conflict"
 
 # Progressive enhancement: no-JS create list → 303 redirect
 # kebabcase("NoJS List") → no-js-list
