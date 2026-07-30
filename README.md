@@ -213,20 +213,29 @@ appear in a `range`, not as a single fixed slot in the skeleton.
 
 ## Smoke tests
 
-Prefer a clean DB for a deterministic suite:
+Preferred — builds caddy if needed, serves on an ephemeral port with a fresh
+DB, runs both hurl suites, then stops:
 
 ```sh
-rm -f todos.db todos.db-shm todos.db-wal
-./caddy run --config Caddyfile   # or xtemplate -f config.json
-hurl --test tests/todos.hurl
+mise test
 ```
 
-Per-user isolation (different `X-Token-Subject` values) needs the CLI or any
-setup that does not rewrite identity headers — the local Caddyfile always
-injects `dev`:
+Artifacts land under `.scratch/runs/latest-test/` (`caddy.log`, hurl HTML
+reports). The test Caddyfile does **not** rewrite identity headers (so
+`isolation.hurl` can set `X-Token-Subject` per request); `todos.hurl` gets
+`dev` via hurl `--header`.
+
+Manual runs:
 
 ```sh
-# separate process: xtemplate -f config.json
+# todos only — local Caddyfile injects X-Token-Subject: dev
+rm -f todos.db todos.db-shm todos.db-wal
+./caddy run --config Caddyfile
+hurl --test tests/todos.hurl
+
+# isolation — needs no header rewrite (CLI / config.json, not Caddyfile)
+rm -f todos.db todos.db-shm todos.db-wal
+xtemplate -f config.json
 hurl --test tests/isolation.hurl
 ```
 

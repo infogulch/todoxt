@@ -1,0 +1,31 @@
+#!/usr/bin/env nu
+#MISE description="Build, serve, and integration-test"
+#MISE depends=["build"]
+use ../lib.nu *
+
+let caddy = ($env.ROOT | path join caddy)
+
+let work = (new-run-dir test)
+let admin = (write-test-caddyfile $work)
+
+# Caddyfile uses :0 + per-run admin unix socket (see write-test-caddyfile).
+do {
+    cd $work
+    ^$caddy start --config Caddyfile --pidfile caddy.pid
+} out+err> ($work | path join caddy.log)
+
+let outcome = (try {
+    let port = (wait-listen-port ($work | path join caddy.log))
+    run-hurl $port ($work | path join report)
+    "ok"
+} catch { |e| $e.msg })
+
+stop-test-caddy $caddy $work
+
+if $outcome != "ok" {
+    print -e $"test failed: ($outcome)"
+    print -e $"  work:   ($work)"
+    print -e $"  log:    ($work | path join caddy.log)"
+    print -e $"  report: ($work | path join report)"
+    exit 1
+}

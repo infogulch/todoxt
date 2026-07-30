@@ -3,3 +3,4 @@ caddy
 caddy.exe
 .env
 *.sqlite
+.scratch

@@ -1,8 +1,9 @@
-# Per-user isolation. Requires a server that does NOT rewrite X-Token-Subject
-# (xtemplate CLI / config.json). The local Caddyfile always injects "dev".
+# Per-user isolation. Requires a server that does NOT rewrite X-Token-Subject.
+# `mise test` generates such a Caddyfile in .scratch/runs/. For a manual run:
 #
+#   # Use config.json (no header rewrite), not the local Caddyfile (injects "dev")
 #   rm -f todos.db todos.db-shm todos.db-wal
-#   xtemplate -f config.json   # or: go run ./cmd -f /path/to/todoxt/config.json
+#   xtemplate -f config.json
 #   hurl --test tests/isolation.hurl
 
 # First action is create list (no prior GET) → exactly that list, no auto "My Todos"

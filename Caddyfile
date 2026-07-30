@@ -7,6 +7,9 @@
 # Requires a recent xtemplate (bus provider). For GitHub OAuth, use Caddyfile.github.
 #
 #   caddy run --config Caddyfile
+#
+# Integration tests (`mise test`) generate their own Caddyfile in .scratch/runs/
+# with :0, a per-run admin socket, and no identity rewrite.
 
 {
 	# debug
@@ -21,7 +24,7 @@
 
 	route {
 		xtemplate {
-		    controller watchfs {
+			controller watchfs {
 				path templates
 			}
 
