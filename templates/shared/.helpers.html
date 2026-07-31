@@ -18,14 +18,6 @@
 {{end}}
 
 {{/*
-  notify-list-deleted — sentinel bus message so other tabs leave a deleted list.
-  SSE maps this to a named "list-deleted" event (see list events handler).
-*/}}
-{{define "notify-list-deleted"}}
-{{- $_ := .Bus.Publish (printf "todos:%s:%s" .Vars.owner .Vars.list.id) "list-deleted"}}
-{{end}}
-
-{{/*
   ensure-lists creates a default "My Todos" list when the owner has none.
   Call only from the lists index (GET / / lists-index fragment) — not from POST /lists
   or list routes. Creating a list already satisfies "at least one list".

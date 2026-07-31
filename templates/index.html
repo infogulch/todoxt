@@ -51,14 +51,12 @@
               {{- end -}}
             </span>
           </a>
-          {{- if gt $listCount 1}}
           <button type="button" class="btn--danger"
             title="Delete list"
-            hx-delete="{{template "list-base" (dict "name" .name "id" .id)}}"
+            hx-delete="{{template `list-base` (dict `name` .name `id` .id)}}"
             hx-target="#lists-index"
             hx-swap="outerMorph"
             hx-confirm="Delete list “{{.name}}” and all its todos?">✕</button>
-          {{- end}}
         </li>
         {{- end}}
       </ul>

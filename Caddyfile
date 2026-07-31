@@ -35,6 +35,8 @@
 			provider bus Bus {
 				buffer 32
 			}
+
+			minify false
 		}
 	}
 }

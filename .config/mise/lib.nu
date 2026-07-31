@@ -71,6 +71,8 @@ export def write-test-caddyfile [dir: string]: nothing -> string {
 			provider bus Bus {
 				buffer 32
 			}
+
+			minify false
 		}
 	}
 }

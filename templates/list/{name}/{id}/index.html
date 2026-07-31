@@ -13,29 +13,18 @@
 <body>
   {{template "nav" .}}
   <main class="site-main">
-    {{/*
-      Nested {{block}}s are the source of truth for mutation fragments
-      (todo-item, toggle-all, footer, list body). Local mutations return the
-      smallest piece + <hx-partial> meta. Multi-tab sync: hx-sse:connect swaps
-      unnamed SSE messages that carry the same partial snapshot (list + meta),
-      not a full-card re-fetch.
-    */}}
-    {{- $listCount := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` .Vars.owner}}
+    <a class="todos-card__back" href="/">← Lists</a>
     <section id="todos-app" class="todos-card" data-list-path="{{.Vars.list_base}}"
-      hx-sse:connect="{{.Vars.list_base}}/events"
-      hx-swap="none"
-      hx-on:list-deleted="location.assign('/')">
+        hx-sse:connect="{{.Vars.list_base}}/events" hx-swap="none"
+        hx-on:list-deleted="location.assign('/')">
       <div class="todos-card__header">
         <div class="todos-card__title">
-          <a class="todos-card__back" href="/">← Lists</a>
           <h1>{{.Vars.list.name}}</h1>
         </div>
-        {{- if gt $listCount 1}}
         <button type="button" class="btn--danger list-delete"
           title="Delete this list"
           hx-delete="{{.Vars.list_base}}"
           hx-confirm="Delete list “{{.Vars.list.name}}” and all its todos?">Delete list</button>
-        {{- end}}
         <label class="sr-only" for="toggle-all">Mark all complete</label>
         {{block "toggle-all" .}}
         {{- $alldone := .DB.QueryVal `SELECT COUNT(id) > 0 AND COALESCE(SUM(done), 0) = COUNT(id) FROM todo WHERE owner_id = ? AND list_id = ?` .Vars.owner .Vars.list.id}}
@@ -43,17 +32,20 @@
           {{if $alldone}}checked{{end}}
           hx-post="{{.Vars.list_base}}/toggle-all"
           hx-target="#todo-list"
-          hx-swap="innerMorph" />
+          hx-swap="innerHTML" />
         {{end}}
       </div>
 
       <form class="todos-card__compose"
-        method="post"
-        action="{{.Vars.list_base}}/todos"
-        hx-post="{{.Vars.list_base}}/todos"
-        hx-swap="none"
-        hx-disable="find input, find button"
-        hx-on::after:request="if (event.detail.ctx.response.status < 400) this.reset()">
+          method="post"
+          action="{{.Vars.list_base}}/todos"
+          hx-post="{{.Vars.list_base}}/todos"
+          hx-swap="append"
+          hx-target="#todo-list"
+          hx-disable="find input, find button"
+          hx-on:htmx:after:request="find('closest form').reset()"
+          hx-on:htmx:after-settle="console.log('after-settle')"
+          >
         <label class="sr-only" for="new-todo">New todo</label>
         <input id="new-todo" name="label" type="text"
           placeholder="What needs to be done?"
@@ -65,29 +57,29 @@
         {{- block "todo-list-items" .}}
         {{- $base := .Vars.list_base}}
         {{- range .DB.QueryRows `SELECT id, label, done FROM todo WHERE owner_id = ? AND list_id = ? ORDER BY rowid` .Vars.owner .Vars.list.id}}
-        {{- $_ := set . "list_base" $base }}
-        {{block "todo-item" .}}
-        <li class="todo-item{{if .done}} todo-item--done{{end}}" id="todo-{{.id}}">
-          <input type="checkbox" {{if .done}}checked{{end}}
-            title="Toggle done"
-            hx-post="{{.list_base}}/todos/{{.id}}/toggle"
-            hx-target="closest li"
-            hx-swap="outerMorph" />
-          <span class="todo-item__label">{{.label}}</span>
-          <button type="button" class="btn--danger"
-            title="Delete"
-            hx-delete="{{.list_base}}/todos/{{.id}}"
-            hx-target="closest li"
-            hx-swap="delete"
-            hx-confirm="Delete this todo?">✕</button>
-        </li>
-        {{end}}
+          {{- $_ := set . "list_base" $base }}
+          {{block "todo-item" .}}
+          <li class="todo-item{{if .done}} todo-item--done{{end}}" id="todo-{{.id}}">
+            <input type="checkbox" {{if .done}}checked{{end}}
+              title="Toggle done"
+              hx-post="{{.list_base}}/todos/{{.id}}/toggle"
+              hx-target="closest li"
+              hx-swap="outerMorph" />
+            <span class="todo-item__label">{{.label}}</span>
+            <button type="button" class="btn--danger"
+              title="Delete"
+              hx-delete="{{.list_base}}/todos/{{.id}}"
+              hx-target="closest li"
+              hx-swap="delete"
+              hx-confirm="Delete this todo?">✕</button>
+          </li>
+          {{- end}}
         {{- else}}
-        {{- block "todo-empty" .}}
-        <li class="todo-empty" id="todo-empty">No todos yet. Add one above.</li>
+          {{- block "todo-empty" .}}
+          <li class="todo-empty" id="todo-empty">No todos yet. Add one above.</li>
+          {{- end}}
         {{- end}}
         {{- end}}
-        {{end}}
       </ul>
 
       {{block "todo-footer" .}}
@@ -101,10 +93,6 @@
       </footer>
       {{end}}
     </section>
-    <p class="live-hint">
-      <strong>Live sync:</strong> open this page in another tab. Edits appear here
-      over Server-Sent Events (per-list <code>bus</code> topic via htmx <code>hx-sse</code>).
-    </p>
   </main>
 </body>
 </html>
@@ -114,12 +102,8 @@
   Used by local mutation responses and by the multi-tab SSE snapshot.
 */}}
 {{define "todo-meta-partials"}}
-<hx-partial hx-target="#toggle-all" hx-swap="outerMorph">
-{{- template "toggle-all" .}}
-</hx-partial>
-<hx-partial hx-target="#todo-footer" hx-swap="outerMorph">
-{{- template "todo-footer" .}}
-</hx-partial>
+<hx-partial hx-swap="outerHTML" hx-target="#toggle-all">{{- template "toggle-all" .}}</hx-partial>
+<hx-partial hx-swap="outerHTML" hx-target="#todo-footer">{{- template "todo-footer" .}}</hx-partial>
 {{end}}
 
 {{/*
@@ -128,32 +112,22 @@
   Morph by id keeps stable nodes across local + SSE re-applies.
 */}}
 {{define "todo-sync-partials"}}
-<hx-partial hx-target="#todo-list" hx-swap="innerMorph">
-{{- template "todo-list-items" .}}
-</hx-partial>
+<hx-partial hx-swap="innerHTML" hx-target="#todo-list">{{- template "todo-list-items" .}}</hx-partial>
 {{- template "todo-meta-partials" .}}
 {{end}}
 
 {{define "DELETE /list/{name}/{id}"}}
 {{- template "require-list" .}}
-{{- $n := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE owner_id = ?` .Vars.owner}}
-{{- if le $n 1}}
-  {{- .Vars.Set "error_title" "Conflict"}}
-  {{- .Vars.Set "error" "cannot delete the last list"}}
-  {{- .Resp.RespondWith 409 (.X.Template "/shared/.error.html" .)}}
-{{- end}}
 {{- /* FK ON DELETE CASCADE removes todos for this list. */}}
 {{- $_ := .DB.Exec `DELETE FROM todo_list WHERE id = ? AND owner_id = ?` .Vars.list.id .Vars.owner}}
 {{- /* Other open tabs on this list navigate home via named SSE list-deleted. */}}
-{{- template "notify-list-deleted" .}}
+{{- $_ := .Bus.Publish (printf "todos:%s:%s" .Vars.owner .Vars.list.id) "list-deleted"}}
 {{- /* From the list page, send the browser home; from the index, swap the panel. */}}
-{{- $hxTarget := .Req.Header.Get "HX-Target"}}
-{{- if and (ne $hxTarget "lists-index") (ne $hxTarget "#lists-index")}}
+{{- if ne (.Req.Header.Get "HX-Target") "#lists-index"}}
   {{- .Resp.AddHeader "HX-Redirect" "/"}}
   {{- .Resp.RespondWith 200 ""}}
-{{- else}}
-  {{- template "lists-index" .}}
 {{- end}}
+{{- template "lists-index" .}}
 {{end}}
 
 {{define "POST /list/{name}/{id}/todos"}}
@@ -168,16 +142,6 @@
 {{- $todoId := uuidv4}}
 {{- $_ := .DB.Exec `INSERT INTO todo (id, owner_id, list_id, label, done) VALUES (?, ?, ?, ?, 0)` $todoId .Vars.owner .Vars.list.id $label}}
 {{- template "notify" .}}
-{{- if eq (.Req.Header.Get "HX-Request") "true"}}
-  {{- /*
-    Same partial snapshot as SSE notify — not beforeend of one <li>.
-    Origin tab also receives the bus message; morph/snapshot is idempotent.
-  */}}
-  {{- template "todo-sync-partials" .}}
-{{- else}}
-  {{- .Resp.AddHeader "Location" .Vars.list_path}}
-  {{- .Resp.RespondWith 303 ""}}
-{{- end}}
 {{end}}
 
 {{define "POST /list/{name}/{id}/toggle-all"}}
@@ -224,22 +188,15 @@
 {{define "SSE /list/{name}/{id}/events"}}
 {{- template "with-owner" .}}
 {{- $id := .Req.PathValue "id"}}
-{{- /*
-  Ownership check only — .Resp.RespondWith is buffered-only.
-  xtemplate commits text/event-stream headers before the template runs, so
-  failf cannot change the status (client sees 200 + short body; hx-sse
-  may reconnect). HTML routes use require-list → real 404.
-*/}}
 {{- $owned := .DB.QueryVal `SELECT COUNT(*) FROM todo_list WHERE id = ? AND owner_id = ?` $id .Vars.owner}}
+{{- /* explicitly commit the db to clear the open tx */}}
+{{- $_ := .DB.Rollback }}
 {{- if eq $owned 0}}{{failf "list not found"}}{{end}}
-{{- /*
-  Unnamed data: hx-sse swaps HTML (partials).
-  Named events are DOM-only: connected handshake; list-deleted → navigate home.
-*/}}
 {{- $.Flush.SendSSE "connected" "ok"}}
 {{- range .Bus.Subscribe (printf "todos:%s:%s" .Vars.owner $id)}}
-{{- if eq . "list-deleted"}}
-{{- $.Flush.SendSSE "list-deleted" ""}}
+{{- if regexMatch `^[a-z]+(-[a-z]+)*$` .}}
+{{- $.Flush.SendSSE . "1"}}
+{{- return }}
 {{- else}}
 {{- $.Flush.SendSSE "" .}}
 {{- end}}
